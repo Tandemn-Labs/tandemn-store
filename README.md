@@ -19,7 +19,9 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 **Phase 1c (done):** `tandemn_user_data` core types (`PayloadRef`, `OutputRef`, `NormalizedRecord`), connector protocols + registry, `LocalFileConnector` (JSONL on disk), `S3Connector` (JSONL on S3/MinIO), worker-side `WorkerClient` / `fetch_payload` / `write_outputs`, Orca-side `index_source` and `DevCredentialIssuer`, and an end-to-end test of the full §7 dataflow.
 
-**Phase 1d (next):** Orca wiring — persist `IssuedCredential` to the canonical `credentials` table; HTTP-backed `CredentialResolver` that calls Orca's narrow endpoint; real STS / KMS / Vault integration; `import-linter` config to enforce the §1 principle 2 boundary in CI.
+**Phase 1d (done):** `CredentialStore` (canonical persistence), `/credentials/<ref>` FastAPI app behind a worker-bearer-token header, `HttpCredentialResolver` (worker-side, no system_data imports), full §7 lifecycle e2e through real HTTP, `import-linter` enforcing the §1 principle 2 boundary, GitHub Actions CI running lint + unit + import-linter + integration + `alembic check` on every PR.
+
+**Phase 2 (next):** Strangler-fig integration into `tandemn-system` (Orca) — `USE_CANONICAL_STORE` feature flag, `submit_batch` cutover, real STS / KMS / Vault behind `CredentialIssuer`, replace the rest of the webhook flows with Redis Streams events.
 
 ---
 
@@ -71,10 +73,15 @@ src/
 │   ├── ids.py                   # canonical ID generator    (Phase 1b ✅)
 │   └── events.py                # Event envelope            (Phase 1b ✅)
 └── tandemn_user_data/           # user payloads (Orca + workers + CLI)
-    ├── core/                    # NormalizedRecord, refs    (Phase 1c ✅)
+    ├── core/                    # NormalizedRecord, refs +
+    │                            # HttpCredentialResolver    (Phase 1c/d ✅)
     ├── connectors/              # S3 / local / future       (Phase 1c ✅)
-    ├── worker/                  # fetch_payload             (Phase 1c ✅)
-    └── orca/                    # indexer / credentials     (Phase 1c ✅)
+    ├── worker/                  # WorkerClient              (Phase 1c ✅)
+    └── orca/                    # indexer / dev issuer      (Phase 1c ✅)
 ```
+
+The `tandemn_system_data → tandemn_user_data` direction is forbidden by
+`.importlinter` and checked on every PR. See `DATA_ARCHITECTURE.md` §1
+principle 2 for why.
 
 Workers must never `import tandemn_system_data`. CI will enforce this via `import-linter` once Phase 1b lands.

@@ -1,0 +1,21 @@
+[importlinter]
+root_packages =
+    tandemn_system_data
+    tandemn_user_data
+
+# DATA_ARCHITECTURE.md §1 principle 2 + §2:
+#   "Workers never import tandemn_system_data."
+#   The split is enforced in CI (import-linter).
+#
+# tandemn_user_data is loaded by workers (and by Orca + CLI). If a
+# module under tandemn_user_data imports anything from
+# tandemn_system_data, that import would travel into the worker image
+# and break the boundary. This contract makes that impossible to land.
+
+[importlinter:contract:user-data-isolated-from-system-data]
+name = tandemn_user_data must not import tandemn_system_data
+type = forbidden
+source_modules =
+    tandemn_user_data
+forbidden_modules =
+    tandemn_system_data

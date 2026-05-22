@@ -1,5 +1,5 @@
 .PHONY: help up down logs ps install test test-integration lint format clean \
-        migrate migrate-down migrate-check migrate-new
+        migrate migrate-down migrate-check migrate-new contracts
 
 help:
 	@echo "tandemn-store dev targets:"
@@ -16,6 +16,7 @@ help:
 	@echo "  make migrate-new M=msg   alembic revision --autogenerate -m \"msg\""
 	@echo "  make lint                ruff check"
 	@echo "  make format              ruff format"
+	@echo "  make contracts           import-linter (boundary between the two packages)"
 	@echo "  make clean               remove .venv and __pycache__ trees"
 
 up:
@@ -46,6 +47,9 @@ lint:
 
 format:
 	uv run ruff format src tests
+
+contracts:
+	uv run lint-imports
 
 migrate:
 	uv run alembic upgrade head
