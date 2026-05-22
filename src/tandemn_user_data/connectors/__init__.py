@@ -8,5 +8,6 @@ it in your application's ConnectorRegistry.
 from __future__ import annotations
 
 from tandemn_user_data.connectors.local import LocalFileConnector
+from tandemn_user_data.connectors.s3 import S3Connector
 
-__all__ = ["LocalFileConnector"]
+__all__ = ["LocalFileConnector", "S3Connector"]
