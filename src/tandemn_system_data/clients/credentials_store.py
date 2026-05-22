@@ -31,11 +31,11 @@ from tandemn_system_data.db import CredentialsRow
 from tandemn_system_data.ids import new_credentials_ref
 
 
-class CredentialNotFound(KeyError):
+class CredentialNotFound(KeyError):  # noqa: N818 — public API; reads naturally without Error suffix
     """Raised when a credentials_ref is not in the store."""
 
 
-class CredentialExpired(LookupError):
+class CredentialExpired(LookupError):  # noqa: N818 — public API; reads naturally without Error suffix
     """Raised when a credentials_ref exists but has passed its expires_at."""
 
 
