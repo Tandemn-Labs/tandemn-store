@@ -1,4 +1,5 @@
-.PHONY: help up down logs ps install test test-integration lint format clean
+.PHONY: help up down logs ps install test test-integration lint format clean \
+        migrate migrate-down migrate-check migrate-new
 
 help:
 	@echo "tandemn-store dev targets:"
@@ -9,6 +10,10 @@ help:
 	@echo "  make install             create venv and install deps via uv"
 	@echo "  make test                run unit tests (no infra required)"
 	@echo "  make test-integration    run integration tests (requires \`make up\`)"
+	@echo "  make migrate             alembic upgrade head"
+	@echo "  make migrate-down        alembic downgrade base"
+	@echo "  make migrate-check       alembic check (no diff vs ORM)"
+	@echo "  make migrate-new M=msg   alembic revision --autogenerate -m \"msg\""
 	@echo "  make lint                ruff check"
 	@echo "  make format              ruff format"
 	@echo "  make clean               remove .venv and __pycache__ trees"
@@ -41,6 +46,19 @@ lint:
 
 format:
 	uv run ruff format src tests
+
+migrate:
+	uv run alembic upgrade head
+
+migrate-down:
+	uv run alembic downgrade base
+
+migrate-check:
+	uv run alembic check
+
+migrate-new:
+	@if [ -z "$(M)" ]; then echo "usage: make migrate-new M=\"short message\""; exit 1; fi
+	uv run alembic revision --autogenerate -m "$(M)"
 
 clean:
 	rm -rf .venv .pytest_cache

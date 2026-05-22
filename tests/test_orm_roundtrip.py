@@ -57,15 +57,28 @@ def pg_client() -> PostgresClient:
 
 @pytest.fixture(scope="module", autouse=True)
 def _reset_schema(pg_client: PostgresClient):
-    """Drop and recreate the spine before this module runs.
+    """Drop the spine and reapply the Alembic baseline before this module runs.
 
-    Module-scoped so all tests share one fresh schema. Phase 1b uses
-    create_all directly; Alembic migrations land in a separate commit.
+    Module-scoped so all tests share one fresh schema. We go through Alembic
+    rather than create_all so the test exercises the same migration path
+    production will use.
     """
+    import subprocess
+    from pathlib import Path
+
     Base.metadata.drop_all(pg_client.engine)
-    Base.metadata.create_all(pg_client.engine)
+    with pg_client.engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+    )
     yield
-    # leave the schema in place so a developer can inspect with psql.
+    # Leave the schema in place so a developer can inspect with psql.
 
 
 # ---------------------------------------------------------------------------
