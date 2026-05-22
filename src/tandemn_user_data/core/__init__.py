@@ -15,6 +15,7 @@ from tandemn_user_data.core.base import (
     OutputConnector,
 )
 from tandemn_user_data.core.credentials_client import (
+    HttpCredentialResolver,
     LocalCredentialsCache,
     NullResolver,
 )
@@ -27,6 +28,7 @@ from tandemn_user_data.core.record import (
 __all__ = [
     "ConnectorRegistry",
     "CredentialResolver",
+    "HttpCredentialResolver",
     "InputConnector",
     "LocalCredentialsCache",
     "NormalizedRecord",

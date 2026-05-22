@@ -250,9 +250,9 @@ def test_credentials_require_expiry_and_secret():
     c = Credentials(
         tenant_id="tnt_1",
         scope_json={"prefix": "s3://customer/inputs/"},
-        secret_payload=b"opaque-encrypted-token",
+        secret_payload=b'"opaque-encrypted-token"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     assert c.credentials_ref.startswith("cred_")
-    assert c.secret_payload == b"opaque-encrypted-token"
+    assert c.secret_payload == b'"opaque-encrypted-token"'
     assert c.expires_at > datetime.now(UTC)

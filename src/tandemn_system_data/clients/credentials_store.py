@@ -13,6 +13,12 @@ instead of an IssuedCredential so tandemn_system_data has zero coupling
 to tandemn_user_data. Orca (which imports both) is the place that
 translates one to the other.
 
+Storage contract: `secret_payload` is bytes containing UTF-8 JSON.
+The credentials_server endpoint JSON-decodes it before returning; the
+worker resolver receives a parsed value (dict / list / str / None)
+that can be handed directly to a connector. CredentialStore.put()
+validates JSON-decodability so bad payloads can't reach the DB.
+
 The endpoint server (clients/credentials_server.py) sits on top of this
 store. Workers never call CredentialStore directly — they go through
 HTTP via tandemn_user_data.core.credentials_client.HttpCredentialResolver.
@@ -20,6 +26,7 @@ HTTP via tandemn_user_data.core.credentials_client.HttpCredentialResolver.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -76,6 +83,14 @@ class CredentialStore:
             raise ValueError("expires_at must be in the future")
         if not isinstance(secret_payload, (bytes, bytearray, memoryview)):
             raise TypeError("secret_payload must be bytes")
+        # secret_payload must be UTF-8 JSON so the HTTP endpoint can
+        # serve it as a parsed value to the worker resolver.
+        try:
+            json.loads(bytes(secret_payload).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            raise ValueError(
+                "secret_payload must be UTF-8 JSON bytes (use json.dumps(...).encode('utf-8'))"
+            ) from e
 
         ref = credentials_ref or new_credentials_ref()
         now = datetime.now(UTC)

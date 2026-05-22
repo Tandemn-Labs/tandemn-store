@@ -6,7 +6,7 @@ ASGITransport to talk to the app in-process without binding a port.
 
 from __future__ import annotations
 
-import base64
+import json
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -100,10 +100,11 @@ def test_healthz_requires_token(client: TestClient):
 
 
 def test_get_credential_round_trip(client: TestClient, store: CredentialStore, tenant_id: str):
+    creds_dict = {"access_key": "AKIAEXAMPLE", "secret_key": "very-secret"}
     ref = store.put(
         tenant_id=tenant_id,
         scope_json={"prefix": "s3://customer/inputs/"},
-        secret_payload=b"opaque-token-bytes",
+        secret_payload=json.dumps(creds_dict).encode("utf-8"),
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     r = client.get(
@@ -115,8 +116,8 @@ def test_get_credential_round_trip(client: TestClient, store: CredentialStore, t
     assert body["credentials_ref"] == ref
     assert body["tenant_id"] == tenant_id
     assert body["scope_json"] == {"prefix": "s3://customer/inputs/"}
-    # base64 round-trips back to the original payload
-    assert base64.b64decode(body["secret_payload"]) == b"opaque-token-bytes"
+    # secret_payload arrives as the parsed JSON object — ready to hand to a connector.
+    assert body["secret_payload"] == creds_dict
     # expires_at is ISO-8601
     parsed = datetime.fromisoformat(body["expires_at"])
     assert parsed > datetime.now(UTC)
@@ -126,7 +127,7 @@ def test_unauthorized_without_token(client: TestClient, store: CredentialStore, 
     ref = store.put(
         tenant_id=tenant_id,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     r = client.get(f"/credentials/{ref}")
@@ -137,7 +138,7 @@ def test_unauthorized_with_wrong_token(client: TestClient, store: CredentialStor
     ref = store.put(
         tenant_id=tenant_id,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     r = client.get(
@@ -164,7 +165,7 @@ def test_expired_ref_returns_410(
     ref = store.put(
         tenant_id=tenant_id,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     # Back-date.

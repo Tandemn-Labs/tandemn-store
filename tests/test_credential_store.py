@@ -77,7 +77,7 @@ def test_put_returns_credentials_ref(store: CredentialStore, seeded_tenant: str)
     ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={"prefix": "s3://customer/inputs/"},
-        secret_payload=b"opaque-token-bytes",
+        secret_payload=b'"opaque-token-bytes"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     assert ref.startswith("cred_")
@@ -87,14 +87,14 @@ def test_put_then_get_round_trip(store: CredentialStore, seeded_tenant: str):
     ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={"prefix": "s3://customer/inputs/"},
-        secret_payload=b"opaque",
+        secret_payload=b'"opaque"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     row = store.get(ref)
     assert row.credentials_ref == ref
     assert row.tenant_id == seeded_tenant
     assert row.scope_json == {"prefix": "s3://customer/inputs/"}
-    assert row.secret_payload == b"opaque"
+    assert row.secret_payload == b'"opaque"'
 
 
 def test_put_accepts_caller_supplied_ref(store: CredentialStore, seeded_tenant: str):
@@ -102,7 +102,7 @@ def test_put_accepts_caller_supplied_ref(store: CredentialStore, seeded_tenant: 
     returned = store.put(
         tenant_id=seeded_tenant,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         credentials_ref=ref,
     )
@@ -115,7 +115,7 @@ def test_put_rejects_naive_expires_at(store: CredentialStore, seeded_tenant: str
         store.put(
             tenant_id=seeded_tenant,
             scope_json={},
-            secret_payload=b"x",
+            secret_payload=b'"x"',
             expires_at=datetime.now() + timedelta(hours=1),  # naive on purpose
         )
 
@@ -125,7 +125,7 @@ def test_put_rejects_past_expires_at(store: CredentialStore, seeded_tenant: str)
         store.put(
             tenant_id=seeded_tenant,
             scope_json={},
-            secret_payload=b"x",
+            secret_payload=b'"x"',
             expires_at=datetime.now(UTC) - timedelta(seconds=1),
         )
 
@@ -140,6 +140,18 @@ def test_put_rejects_non_bytes_secret(store: CredentialStore, seeded_tenant: str
         )
 
 
+def test_put_rejects_non_json_secret(store: CredentialStore, seeded_tenant: str):
+    """secret_payload must be UTF-8 JSON so the resolver endpoint can
+    serve it as a parsed object."""
+    with pytest.raises(ValueError):
+        store.put(
+            tenant_id=seeded_tenant,
+            scope_json={},
+            secret_payload=b"\xff\xfe-not-json-and-not-utf8",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Expiry semantics
 # ---------------------------------------------------------------------------
@@ -150,7 +162,7 @@ def test_get_rejects_expired(store: CredentialStore, seeded_tenant: str, pg_clie
     ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     with pg_client.engine.begin() as conn:
@@ -178,7 +190,7 @@ def test_exists_handles_both_failure_modes(
     ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     assert store.exists(ref) is True
@@ -205,13 +217,13 @@ def test_list_for_tenant_excludes_expired_by_default(
     live_ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={"label": "live"},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     stale_ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={"label": "stale"},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     with pg_client.engine.begin() as conn:
@@ -236,7 +248,7 @@ def test_revoke_removes_row(store: CredentialStore, seeded_tenant: str):
     ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     assert store.revoke(ref) is True
@@ -250,19 +262,19 @@ def test_purge_expired(store: CredentialStore, seeded_tenant: str, pg_client: Po
     ref_a = store.put(
         tenant_id=seeded_tenant,
         scope_json={"label": "a"},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     ref_b = store.put(
         tenant_id=seeded_tenant,
         scope_json={"label": "b"},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     live_ref = store.put(
         tenant_id=seeded_tenant,
         scope_json={"label": "live"},
-        secret_payload=b"x",
+        secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     with pg_client.engine.begin() as conn:

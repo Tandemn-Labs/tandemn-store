@@ -1,7 +1,7 @@
 """Narrow HTTP server for credential resolution — DATA_ARCHITECTURE.md §7.
 
 Workers call `GET /credentials/<ref>` to resolve a credentials_ref to
-the opaque secret payload Orca minted for that ref. In production this
+the secret payload Orca minted for that ref. In production this
 endpoint is folded into Orca's main FastAPI app; here it ships as a
 factory function so the same code path is used in tests and in Orca.
 
@@ -10,22 +10,24 @@ real mTLS / KMS / Vault integration is deferred (Phase 1d ships a
 shared-secret bearer header as a stand-in). The auth surface is small
 and pluggable so swapping in mTLS later is a single change.
 
+Storage contract: `credentials.secret_payload` is stored as JSON bytes.
+The server decodes them to a JSON object and ships them in the
+`secret_payload` field of the response so the worker-side resolver can
+hand the parsed value directly to a connector (no separate decode step).
+
 Response shape:
   {
     \"credentials_ref\": \"cred_...\",
     \"tenant_id\":       \"tnt_...\",
     \"scope_json\":      {...},
-    \"secret_payload\":  base64-encoded bytes,
+    \"secret_payload\":  <parsed JSON object | array | string | null>,
     \"expires_at\":      ISO-8601 timestamp,
   }
-
-The worker decodes `secret_payload` from base64 and passes it (or a
-parsed form of it) to the connector as `creds`.
 """
 
 from __future__ import annotations
 
-import base64
+import json
 import os
 from collections.abc import Awaitable, Callable
 
@@ -89,11 +91,19 @@ def create_credentials_app(
         except CredentialExpired as e:
             raise HTTPException(status_code=410, detail="credential expired") from e
 
+        try:
+            secret_payload = json.loads(row.secret_payload) if row.secret_payload else None
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=500,
+                detail="stored secret_payload is not valid JSON",
+            ) from e
+
         return {
             "credentials_ref": row.credentials_ref,
             "tenant_id": row.tenant_id,
             "scope_json": row.scope_json,
-            "secret_payload": base64.b64encode(row.secret_payload).decode("ascii"),
+            "secret_payload": secret_payload,
             "expires_at": row.expires_at.isoformat(),
         }
 
