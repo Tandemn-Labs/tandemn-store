@@ -41,6 +41,9 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "import-linter>=2.0",
+    # Run the credentials FastAPI app on a real socket for the
+    # end-to-end resolver test.
+    "uvicorn>=0.32",
 ]
 
 [build-system]
