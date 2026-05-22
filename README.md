@@ -15,9 +15,11 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 **Phase 1a (done):** scaffold + connectivity. Both packages import. Postgres, Redis, MinIO start via `make up`. Smoke tests pass.
 
-**Phase 1b (current):** canonical IDs, Pydantic models, typed event payload registry, SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5, Alembic baseline migration, and an end-to-end roundtrip test that goes through the migration.
+**Phase 1b (done):** canonical IDs, Pydantic models, typed event payload registry, SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5, Alembic baseline migration, and an end-to-end roundtrip test that goes through the migration.
 
-**Phase 1c (next):** `tandemn_user_data` core types, `LocalFileConnector` + `S3Connector`, worker-side `fetch_payload`, Orca-side indexer and dev credentials issuer.
+**Phase 1c (done):** `tandemn_user_data` core types (`PayloadRef`, `OutputRef`, `NormalizedRecord`), connector protocols + registry, `LocalFileConnector` (JSONL on disk), `S3Connector` (JSONL on S3/MinIO), worker-side `WorkerClient` / `fetch_payload` / `write_outputs`, Orca-side `index_source` and `DevCredentialIssuer`, and an end-to-end test of the full §7 dataflow.
+
+**Phase 1d (next):** Orca wiring — persist `IssuedCredential` to the canonical `credentials` table; HTTP-backed `CredentialResolver` that calls Orca's narrow endpoint; real STS / KMS / Vault integration; `import-linter` config to enforce the §1 principle 2 boundary in CI.
 
 ---
 
@@ -69,10 +71,10 @@ src/
 │   ├── ids.py                   # canonical ID generator    (Phase 1b ✅)
 │   └── events.py                # Event envelope            (Phase 1b ✅)
 └── tandemn_user_data/           # user payloads (Orca + workers + CLI)
-    ├── core/                    # NormalizedRecord, refs    (Phase 1c)
-    ├── connectors/              # S3 / local / future       (Phase 1c)
-    ├── worker/                  # fetch_payload             (Phase 1c)
-    └── orca/                    # indexer / credentials     (Phase 1c)
+    ├── core/                    # NormalizedRecord, refs    (Phase 1c ✅)
+    ├── connectors/              # S3 / local / future       (Phase 1c ✅)
+    ├── worker/                  # fetch_payload             (Phase 1c ✅)
+    └── orca/                    # indexer / credentials     (Phase 1c ✅)
 ```
 
 Workers must never `import tandemn_system_data`. CI will enforce this via `import-linter` once Phase 1b lands.
