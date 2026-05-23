@@ -80,6 +80,10 @@ src/
     └── orca/                    # indexer / dev issuer      (Phase 1c ✅)
 ```
 
+For a visual of the canonical schema (tables, foreign keys, key
+columns) see [`DATABASE.md`](./DATABASE.md). The diagram renders inline
+on GitHub.
+
 The `tandemn_system_data → tandemn_user_data` direction is forbidden by
 `.importlinter` and checked on every PR. See `DATA_ARCHITECTURE.md` §1
 principle 2 for why.
