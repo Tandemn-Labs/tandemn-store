@@ -28,31 +28,30 @@ from tandemn_system_data.models import (
     OutcomeStatus,
     PlacementAlternative,
     PlacementStrategy,
-    Plan,
     ResourceMap,
-    Tenant,
+    User,
 )
 
 # ---------------------------------------------------------------------------
-# Tenant / ResourceMap / Job (DATA_ARCHITECTURE.md §5)
+# User / ResourceMap / Job (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
 
 
-def test_tenant_defaults():
-    t = Tenant(name="Ventura")
-    assert t.tenant_id.startswith("tnt_")
+def test_user_defaults():
+    t = User(name="Ventura")
+    assert t.user_id.startswith("usr_")
     assert t.name == "Ventura"
     assert t.created_at.tzinfo is not None  # tz-aware
 
 
 def test_resource_map_defaults():
-    rm = ResourceMap(tenant_id="tnt_abc", snapshot_json={"nodes": []})
+    rm = ResourceMap(user_id="usr_abc", snapshot_json={"nodes": []})
     assert rm.resource_map_id.startswith("rmap_")
     assert rm.snapshot_json == {"nodes": []}
 
 
 def test_job_defaults_status_submitted():
-    j = Job(tenant_id="tnt_abc", kind=JobKind.BATCH)
+    j = Job(user_id="usr_abc", kind=JobKind.BATCH)
     assert j.job_id.startswith("job_")
     assert j.status is JobStatus.SUBMITTED
     assert j.input_source == {}
@@ -63,7 +62,7 @@ def test_job_defaults_status_submitted():
 def test_job_input_source_is_pointer_not_data():
     """DATA_ARCHITECTURE.md §5: input_source describes WHERE data lives."""
     j = Job(
-        tenant_id="tnt_abc",
+        user_id="usr_abc",
         kind=JobKind.BATCH,
         input_source={
             "type": "s3",
@@ -84,24 +83,27 @@ def test_job_input_source_is_pointer_not_data():
 
 def test_extras_forbidden():
     with pytest.raises(ValidationError):  # pydantic.ValidationError subclass
-        Tenant(name="X", bogus_field="nope")  # type: ignore[call-arg]
+        User(name="X", bogus_field="nope")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
-# Plan / Decision (DATA_ARCHITECTURE.md §5)
+# Decision (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
 
 
-def test_plan_carries_slo_and_plan_json():
-    p = Plan(plan_json={"alternatives": []}, slo_json={"target_throughput_tps": 1500})
-    assert p.plan_id.startswith("plan_")
-    assert p.slo_json["target_throughput_tps"] == 1500
-
-
-def test_decision_references_plan_and_job():
-    d = Decision(job_id="job_1", plan_id="plan_1", koi_version="koi-0.1")
+def test_decision_carries_rationale_and_executable_plan():
+    d = Decision(
+        job_id="job_1",
+        koi_version="koi-0.1",
+        rationale_json={"why": "demo"},
+        plan_json={"alternatives": []},
+        slo_json={"target_throughput_tps": 1500},
+    )
     assert d.decision_id.startswith("dec_")
     assert d.koi_version == "koi-0.1"
+    assert d.rationale_json == {"why": "demo"}
+    assert d.plan_json == {"alternatives": []}
+    assert d.slo_json["target_throughput_tps"] == 1500
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ def test_pd_disaggregated_requires_pd_ratio():
     """§5: pd_ratio NULL for aggregate; required for pd_disaggregated."""
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            plan_id="plan_1",
+            decision_id="dec_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=None,
@@ -124,7 +126,7 @@ def test_pd_disaggregated_requires_pd_ratio():
 def test_aggregate_must_not_have_pd_ratio():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            plan_id="plan_1",
+            decision_id="dec_1",
             rank=0,
             strategy=PlacementStrategy.AGGREGATE,
             pd_ratio=1.0,
@@ -134,7 +136,7 @@ def test_aggregate_must_not_have_pd_ratio():
 
 def test_pd_disaggregated_accepts_positive_ratio():
     alt = PlacementAlternative(
-        plan_id="plan_1",
+        decision_id="dec_1",
         rank=0,
         strategy=PlacementStrategy.PD_DISAGGREGATED,
         pd_ratio=2.0,
@@ -154,7 +156,7 @@ def test_pd_disaggregated_accepts_positive_ratio():
 
 def test_aggregate_alternative_ok():
     alt = PlacementAlternative(
-        plan_id="plan_1",
+        decision_id="dec_1",
         rank=1,
         strategy=PlacementStrategy.AGGREGATE,
         pd_ratio=None,
@@ -173,14 +175,14 @@ def test_aggregate_alternative_ok():
 def test_pd_ratio_must_be_positive():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            plan_id="plan_1",
+            decision_id="dec_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=0,
         )
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            plan_id="plan_1",
+            decision_id="dec_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=-1.0,
@@ -190,7 +192,7 @@ def test_pd_ratio_must_be_positive():
 def test_rank_must_be_non_negative():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            plan_id="plan_1",
+            decision_id="dec_1",
             rank=-1,
             strategy=PlacementStrategy.AGGREGATE,
         )
@@ -238,17 +240,17 @@ def test_outcome_carries_metrics():
 
 
 def test_event_envelope_optional_scope_ids():
-    """§5: events may have tenant_id, job_id, chain_id; type and payload required."""
+    """§5: events may have user_id, job_id, chain_id; type and payload required."""
     e = Event(type="job.submitted", payload_json={"job_id": "job_1"})
     assert e.event_id.startswith("evt_")
-    assert e.tenant_id is None
+    assert e.user_id is None
     assert e.job_id is None
     assert e.chain_id is None
 
 
 def test_credentials_require_expiry_and_secret():
     c = Credentials(
-        tenant_id="tnt_1",
+        user_id="usr_1",
         scope_json={"prefix": "s3://customer/inputs/"},
         secret_payload=b'"opaque-encrypted-token"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),

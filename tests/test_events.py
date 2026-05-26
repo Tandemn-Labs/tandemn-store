@@ -74,7 +74,7 @@ def test_validate_payload_accepts_correct_shape():
 
 def test_validate_payload_rejects_missing_required_field():
     with pytest.raises(ValidationError):
-        validate_payload("job.submitted", {"tenant_id": "tnt_1"})  # missing job_id
+        validate_payload("job.submitted", {"user_id": "usr_1"})  # missing job_id
 
 
 def test_validate_payload_rejects_extras():
@@ -82,7 +82,7 @@ def test_validate_payload_rejects_extras():
     with pytest.raises(ValidationError):
         validate_payload(
             "job.submitted",
-            {"job_id": "job_1", "tenant_id": "tnt_1", "unexpected": "boom"},
+            {"job_id": "job_1", "user_id": "usr_1", "unexpected": "boom"},
         )
 
 
@@ -90,7 +90,7 @@ def test_placement_alternative_events_share_one_payload_shape():
     """§9: alternative_started/full/partial/abandoned all share the same envelope."""
     common = {
         "job_id": "job_1",
-        "plan_id": "plan_1",
+        "decision_id": "dec_1",
         "alternative_id": "alt_1",
         "rank": 0,
         "status": AlternativeStatus.STARTED,
@@ -108,15 +108,15 @@ def test_placement_alternative_events_share_one_payload_shape():
 def test_event_envelope_carries_typed_payload_as_dict():
     """The Event row stores payload_json as a dict; the typed model
     is the contract for producers/consumers, but the row is JSONB."""
-    payload = JobSubmittedPayload(job_id="job_1", tenant_id="tnt_1")
+    payload = JobSubmittedPayload(job_id="job_1", user_id="usr_1")
     e = Event(
-        tenant_id="tnt_1",
+        user_id="usr_1",
         job_id="job_1",
         type="job.submitted",
         payload_json=payload.model_dump(),
     )
     assert e.type == "job.submitted"
-    assert e.payload_json == {"job_id": "job_1", "tenant_id": "tnt_1"}
+    assert e.payload_json == {"job_id": "job_1", "user_id": "usr_1"}
     # Round-trip the typed validation off the envelope.
     parsed = validate_payload(e.type, e.payload_json)
     assert isinstance(parsed, JobSubmittedPayload)

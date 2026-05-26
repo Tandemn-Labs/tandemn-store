@@ -24,9 +24,8 @@ from tandemn_system_data.db import (
     JobRow,
     OutcomeRow,
     PlacementAlternativeRow,
-    PlanRow,
     ResourceMapRow,
-    TenantRow,
+    UserRow,
 )
 from tandemn_system_data.ids import (
     new_attempt_id,
@@ -37,9 +36,8 @@ from tandemn_system_data.ids import (
     new_job_id,
     new_outcome_id,
     new_placement_alternative_id,
-    new_plan_id,
     new_resource_map_id,
-    new_tenant_id,
+    new_user_id,
 )
 
 pytestmark = pytest.mark.integration
@@ -93,17 +91,16 @@ def test_all_tables_created(pg_client: PostgresClient):
 
 
 def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
-    """Insert tenant \u2192 job \u2192 decision \u2192 plan \u2192 alt \u2192 chain \u2192
+    """Insert user \u2192 job \u2192 decision \u2192 plan \u2192 alt \u2192 chain \u2192
     attempt \u2192 outcome \u2192 event \u2192 credentials, then read them back.
 
     Anchored to DATA_ARCHITECTURE.md \u00a74.
     """
     now = datetime.now(UTC)
 
-    tenant_id = new_tenant_id()
+    user_id = new_user_id()
     resource_map_id = new_resource_map_id()
     job_id = new_job_id()
-    plan_id = new_plan_id()
     decision_id = new_decision_id()
     alt_id = new_placement_alternative_id()
     chain_id = new_chain_id()
@@ -113,13 +110,13 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
     cred_ref = new_credentials_ref()
 
     with pg_client.begin() as s:
-        # Tenant + tenant-scoped rows first.
-        s.add(TenantRow(tenant_id=tenant_id, name="Ventura", created_at=now))
+        # User + user-scoped rows first.
+        s.add(UserRow(user_id=user_id, name="Ventura", created_at=now))
         s.flush()
         s.add(
             ResourceMapRow(
                 resource_map_id=resource_map_id,
-                tenant_id=tenant_id,
+                user_id=user_id,
                 snapshot_json={"nodes": [{"node_id": "gpu-1", "hw": "H100"}]},
                 captured_at=now,
             )
@@ -127,7 +124,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         s.add(
             JobRow(
                 job_id=job_id,
-                tenant_id=tenant_id,
+                user_id=user_id,
                 kind="batch",
                 spec_json={"model": "google/gemma-4-31B-it"},
                 input_source={"type": "s3", "uri": "s3://ventura/inputs/x.jsonl"},
@@ -136,10 +133,12 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 created_at=now,
             )
         )
-        # Plans first because decisions and placement_alternatives FK to plans.
         s.add(
-            PlanRow(
-                plan_id=plan_id,
+            DecisionRow(
+                decision_id=decision_id,
+                job_id=job_id,
+                koi_version="koi-0.1",
+                rationale_json={"why": "demo"},
                 plan_json={"alternatives": []},
                 slo_json={"target_throughput_tps": 1500},
                 created_at=now,
@@ -147,20 +146,9 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         )
         s.flush()
         s.add(
-            DecisionRow(
-                decision_id=decision_id,
-                job_id=job_id,
-                plan_id=plan_id,
-                koi_version="koi-0.1",
-                rationale_json={"why": "demo"},
-                created_at=now,
-            )
-        )
-        s.flush()
-        s.add(
             PlacementAlternativeRow(
                 alternative_id=alt_id,
-                plan_id=plan_id,
+                decision_id=decision_id,
                 rank=0,
                 strategy="pd_disaggregated",
                 pd_ratio=2.0,
@@ -213,7 +201,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         s.add(
             EventRow(
                 event_id=event_id,
-                tenant_id=tenant_id,
+                user_id=user_id,
                 job_id=job_id,
                 chain_id=chain_id,
                 type="outcome.recorded",
@@ -228,9 +216,9 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         s.add(
             CredentialsRow(
                 credentials_ref=cred_ref,
-                tenant_id=tenant_id,
+                user_id=user_id,
                 scope_json={"prefix": "s3://ventura/inputs/"},
-                secret_payload=b"opaque-encrypted-token",
+                secret_payload=b'"opaque-encrypted-token"',
                 expires_at=now + timedelta(hours=1),
                 created_at=now,
             )
@@ -240,11 +228,11 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
     with pg_client.session() as s:
         j = s.get(JobRow, job_id)
         assert j is not None
-        assert j.tenant_id == tenant_id
+        assert j.user_id == user_id
         assert j.input_source["uri"].startswith("s3://")
 
         d = s.get(DecisionRow, decision_id)
-        assert d is not None and d.job_id == job_id and d.plan_id == plan_id
+        assert d is not None and d.job_id == job_id and d.decision_id == decision_id
 
         alt = s.get(PlacementAlternativeRow, alt_id)
         assert alt is not None
@@ -268,6 +256,8 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
 
         cred = s.get(CredentialsRow, cred_ref)
         assert cred is not None and cred.expires_at > now
+        assert d.plan_json == {"alternatives": []}
+        assert d.slo_json["target_throughput_tps"] == 1500
 
 
 def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
@@ -275,16 +265,42 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
     the semantic rule (aggregate => NULL). This test just exercises the
     column's storage shape."""
     now = datetime.now(UTC)
-    plan_id = new_plan_id()
+    user_id = new_user_id()
+    job_id = new_job_id()
+    decision_id = new_decision_id()
     alt_id = new_placement_alternative_id()
 
     with pg_client.begin() as s:
-        s.add(PlanRow(plan_id=plan_id, plan_json={}, slo_json={}, created_at=now))
+        s.add(UserRow(user_id=user_id, name="aggregate-test", created_at=now))
+        s.flush()
+        s.add(
+            JobRow(
+                job_id=job_id,
+                user_id=user_id,
+                kind="batch",
+                spec_json={},
+                input_source={},
+                output_target={},
+                status="submitted",
+                created_at=now,
+            )
+        )
+        s.flush()
+        s.add(
+            DecisionRow(
+                decision_id=decision_id,
+                job_id=job_id,
+                plan_json={},
+                slo_json={},
+                rationale_json={},
+                created_at=now,
+            )
+        )
         s.flush()
         s.add(
             PlacementAlternativeRow(
                 alternative_id=alt_id,
-                plan_id=plan_id,
+                decision_id=decision_id,
                 rank=0,
                 strategy="aggregate",
                 pd_ratio=None,

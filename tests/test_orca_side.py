@@ -43,7 +43,7 @@ def input_jsonl(tmp_path: Path) -> Path:
                 json.dumps(
                     {
                         "input_id": f"in_{i}",
-                        "tenant_id": "tnt_1",
+                        "user_id": "usr_1",
                         "job_id": "job_1",
                         "prompt": f"prompt {i}",
                     }
@@ -108,8 +108,8 @@ def test_index_source_unknown_type(registry: ConnectorRegistry):
 
 def test_issuer_returns_unique_refs():
     issuer = DevCredentialIssuer()
-    a = issuer.issue("tnt_1", {"prefix": "s3://a/"}, secret_payload={"k": "v"})
-    b = issuer.issue("tnt_1", {"prefix": "s3://b/"}, secret_payload={"k": "v"})
+    a = issuer.issue("usr_1", {"prefix": "s3://a/"}, secret_payload={"k": "v"})
+    b = issuer.issue("usr_1", {"prefix": "s3://b/"}, secret_payload={"k": "v"})
     assert isinstance(a, IssuedCredential)
     assert a.credentials_ref != b.credentials_ref
     assert a.credentials_ref.startswith("cred_")
@@ -117,7 +117,7 @@ def test_issuer_returns_unique_refs():
 
 def test_issued_credential_has_future_expiry():
     issuer = DevCredentialIssuer()
-    issued = issuer.issue("tnt_1", {}, secret_payload=None, ttl_seconds=60)
+    issued = issuer.issue("usr_1", {}, secret_payload=None, ttl_seconds=60)
     assert issued.expires_at > datetime.now(UTC)
 
 
@@ -126,12 +126,12 @@ def test_issuer_rejects_bad_inputs():
     with pytest.raises(ValueError):
         issuer.issue("", {}, secret_payload=None)
     with pytest.raises(ValueError):
-        issuer.issue("tnt_1", {}, secret_payload=None, ttl_seconds=0)
+        issuer.issue("usr_1", {}, secret_payload=None, ttl_seconds=0)
 
 
 def test_issuer_lookup():
     issuer = DevCredentialIssuer()
-    issued = issuer.issue("tnt_1", {}, secret_payload={"x": 1})
+    issued = issuer.issue("usr_1", {}, secret_payload={"x": 1})
     assert issuer.get(issued.credentials_ref) is issued
     assert issuer.get("cred_nonexistent") is None
     assert len(issuer) == 1
@@ -141,7 +141,7 @@ def test_issuer_lookup():
 def test_bind_to_cache_exposes_only_secret_payload():
     issuer = DevCredentialIssuer()
     issued = issuer.issue(
-        "tnt_1",
+        "usr_1",
         scope={"prefix": "s3://x"},
         secret_payload={"access_key": "k", "secret_key": "s"},
     )
@@ -162,7 +162,7 @@ def test_full_section_7_dataflow(input_jsonl: Path, registry: ConnectorRegistry)
     # --- Orca side ----------------------------------------------------
     issuer = DevCredentialIssuer()
     issued = issuer.issue(
-        "tnt_1",
+        "usr_1",
         scope={"prefix": str(input_jsonl.parent)},
         # LocalFileConnector doesn't need creds, but the dataflow
         # still carries a credentials_ref through every chunk so the

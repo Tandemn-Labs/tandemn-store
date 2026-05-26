@@ -55,7 +55,7 @@ def test_resolve_round_trips_secret_payload(monkeypatch):
             200,
             json={
                 "credentials_ref": "cred_1",
-                "tenant_id": "tnt_1",
+                "user_id": "usr_1",
                 "scope_json": {},
                 "secret_payload": {"access_key": "k", "secret_key": "s"},
                 "expires_at": "2099-01-01T00:00:00+00:00",
@@ -82,7 +82,7 @@ def test_resolve_caches_responses(monkeypatch):
             200,
             json={
                 "credentials_ref": "cred_1",
-                "tenant_id": "tnt_1",
+                "user_id": "usr_1",
                 "scope_json": {},
                 "secret_payload": {"x": 1},
                 "expires_at": "2099-01-01T00:00:00+00:00",
@@ -108,7 +108,7 @@ def test_resolve_cache_disabled(monkeypatch):
             200,
             json={
                 "credentials_ref": "cred_1",
-                "tenant_id": "tnt_1",
+                "user_id": "usr_1",
                 "scope_json": {},
                 "secret_payload": "v",
                 "expires_at": "2099-01-01T00:00:00+00:00",

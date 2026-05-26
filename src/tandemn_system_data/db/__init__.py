@@ -19,9 +19,8 @@ from tandemn_system_data.db.orm import (
     JobRow,
     OutcomeRow,
     PlacementAlternativeRow,
-    PlanRow,
     ResourceMapRow,
-    TenantRow,
+    UserRow,
 )
 
 __all__ = [
@@ -35,7 +34,6 @@ __all__ = [
     "JobRow",
     "OutcomeRow",
     "PlacementAlternativeRow",
-    "PlanRow",
     "ResourceMapRow",
-    "TenantRow",
+    "UserRow",
 ]

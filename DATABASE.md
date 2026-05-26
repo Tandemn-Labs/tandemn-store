@@ -15,36 +15,35 @@ beyond timestamps and statuses. JSONB columns are flagged with `(jsonb)`.
 
 ```mermaid
 erDiagram
-    tenants ||--o{ jobs            : "owns"
-    tenants ||--o{ resource_maps   : "snapshots"
-    tenants ||--o{ credentials     : "owns"
+    users ||--o{ jobs            : "owns"
+    users ||--o{ resource_maps   : "snapshots"
+    users ||--o{ credentials     : "owns"
 
     jobs ||--o{ decisions          : "produces"
 
-    plans ||--o{ decisions               : "referenced by (RESTRICT)"
-    plans ||--o{ placement_alternatives  : "contains"
+    decisions ||--o{ placement_alternatives  : "contains"
 
     placement_alternatives ||--o{ chains : "launches"
 
     chains ||--o{ attempts  : "has"
     chains ||--o{ outcomes  : "produces"
 
-    tenants {
-      TEXT tenant_id PK
+    users {
+      TEXT user_id PK
       TEXT name
       TIMESTAMPTZ created_at
     }
 
     resource_maps {
       TEXT resource_map_id PK
-      TEXT tenant_id FK
+      TEXT user_id FK
       JSONB snapshot_json
       TIMESTAMPTZ captured_at
     }
 
     jobs {
       TEXT job_id PK
-      TEXT tenant_id FK
+      TEXT user_id FK
       VARCHAR kind
       JSONB spec_json
       JSONB input_source
@@ -54,25 +53,19 @@ erDiagram
       TIMESTAMPTZ completed_at "nullable"
     }
 
-    plans {
-      TEXT plan_id PK
+    decisions {
+      TEXT decision_id PK
+      TEXT job_id FK
+      VARCHAR koi_version "nullable"
+      JSONB rationale_json
       JSONB plan_json
       JSONB slo_json
       TIMESTAMPTZ created_at
     }
 
-    decisions {
-      TEXT decision_id PK
-      TEXT job_id FK
-      TEXT plan_id FK
-      VARCHAR koi_version "nullable"
-      JSONB rationale_json
-      TIMESTAMPTZ created_at
-    }
-
     placement_alternatives {
       TEXT alternative_id PK
-      TEXT plan_id FK
+      TEXT decision_id FK
       INT rank
       VARCHAR strategy "pd_disaggregated | aggregate"
       NUMERIC pd_ratio "NULL for aggregate"
@@ -113,7 +106,7 @@ erDiagram
 
     events {
       TEXT event_id PK
-      TEXT tenant_id "nullable, no FK"
+      TEXT user_id "nullable, no FK"
       TEXT job_id    "nullable, no FK"
       TEXT chain_id  "nullable, no FK"
       VARCHAR type
@@ -123,7 +116,7 @@ erDiagram
 
     credentials {
       TEXT credentials_ref PK
-      TEXT tenant_id FK
+      TEXT user_id FK
       JSONB scope_json
       BYTEA secret_payload "UTF-8 JSON; encrypted at rest in prod"
       TIMESTAMPTZ expires_at
@@ -139,13 +132,12 @@ erDiagram
 The same graph in text, useful for grep and for non-Mermaid renderers.
 
 ```
-tenants(tenant_id)               ← resource_maps.tenant_id           CASCADE
-tenants(tenant_id)               ← jobs.tenant_id                    CASCADE
-tenants(tenant_id)               ← credentials.tenant_id             CASCADE
+users(user_id)               ← resource_maps.user_id           CASCADE
+users(user_id)               ← jobs.user_id                    CASCADE
+users(user_id)               ← credentials.user_id             CASCADE
 
 jobs(job_id)                     ← decisions.job_id                  CASCADE
-plans(plan_id)                   ← decisions.plan_id                 RESTRICT
-plans(plan_id)                   ← placement_alternatives.plan_id    CASCADE
+decisions(decision_id)           ← placement_alternatives.decision_id CASCADE
 
 placement_alternatives(alt_id)   ← chains.alternative_id             CASCADE
 chains(chain_id)                 ← attempts.chain_id                 CASCADE
@@ -153,16 +145,17 @@ chains(chain_id)                 ← outcomes.chain_id                 CASCADE
 ```
 
 `events` deliberately has **no** foreign keys to `jobs` / `chains` /
-`tenants` — the audit log must survive cascade deletes of upstream rows.
+`users` — the audit log must survive cascade deletes of upstream rows.
 This is the §8 "CP record alongside AP delivery" pattern.
 
 ---
 
 ## Read it in one sentence
 
-> A **tenant** submits **jobs**; Koi produces a **decision** for each job
-> that points at a **plan**; a plan carries ordered **placement
-> alternatives** (with `pd_ratio` for PD-disaggregated, NULL for
+> A **user** submits **jobs**; Koi produces a **decision** for each job;
+> the decision carries both Koi's rationale and the executable placement
+> plan. That plan contains ordered **placement alternatives** (with
+> `pd_ratio` for PD-disaggregated, NULL for
 > aggregate); each alternative launches **chains** (with role
 > prefill / decode / aggregate); each chain has **attempts** and produces
 > **outcomes**; every state change emits an **event** into the durable
@@ -175,15 +168,15 @@ This is the §8 "CP record alongside AP delivery" pattern.
 
 Defined in `tandemn_system_data/db/orm.py`:
 
-- `resource_maps`: GIN(`snapshot_json` jsonb_path_ops) for hierarchical inventory queries; (tenant_id, captured_at)
-- `jobs`: (tenant_id, created_at); (status)
-- `decisions`: (job_id); (plan_id)
-- `placement_alternatives`: (plan_id, rank) — the natural order for fallback traversal
+- `resource_maps`: GIN(`snapshot_json` jsonb_path_ops) for hierarchical inventory queries; (user_id, captured_at)
+- `jobs`: (user_id, created_at); (status)
+- `decisions`: (job_id)
+- `placement_alternatives`: (decision_id, rank) — the natural order for fallback traversal
 - `chains`: (alternative_id, role); (status)
 - `attempts`: (chain_id)
 - `outcomes`: (chain_id)
-- `events`: (job_id, created_at); (chain_id, created_at); (tenant_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
-- `credentials`: (tenant_id); (expires_at)
+- `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
+- `credentials`: (user_id); (expires_at)
 
 ---
 

@@ -36,14 +36,14 @@ class Base(DeclarativeBase):
 
 
 # ---------------------------------------------------------------------------
-# §5: tenants
+# §5: users
 # ---------------------------------------------------------------------------
 
 
-class TenantRow(Base):
-    __tablename__ = "tenants"
+class UserRow(Base):
+    __tablename__ = "users"
 
-    tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -57,14 +57,14 @@ class ResourceMapRow(Base):
     __tablename__ = "resource_maps"
 
     resource_map_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_resource_maps_tenant_captured", "tenant_id", "captured_at"),
+        Index("ix_resource_maps_user_captured", "user_id", "captured_at"),
         # GIN index for path/value queries against the snapshot blob.
         Index(
             "ix_resource_maps_snapshot_gin",
@@ -84,8 +84,8 @@ class JobRow(Base):
     __tablename__ = "jobs"
 
     job_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     spec_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -97,23 +97,9 @@ class JobRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        Index("ix_jobs_tenant_created", "tenant_id", "created_at"),
+        Index("ix_jobs_user_created", "user_id", "created_at"),
         Index("ix_jobs_status", "status"),
     )
-
-
-# ---------------------------------------------------------------------------
-# §5: plans (must exist before decisions because decisions FK to plans)
-# ---------------------------------------------------------------------------
-
-
-class PlanRow(Base):
-    __tablename__ = "plans"
-
-    plan_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    plan_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    slo_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 # ---------------------------------------------------------------------------
@@ -128,17 +114,13 @@ class DecisionRow(Base):
     job_id: Mapped[str] = mapped_column(
         Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
     )
-    plan_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("plans.plan_id", ondelete="RESTRICT"), nullable=False
-    )
     koi_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    plan_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    slo_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (
-        Index("ix_decisions_job", "job_id"),
-        Index("ix_decisions_plan", "plan_id"),
-    )
+    __table_args__ = (Index("ix_decisions_job", "job_id"),)
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +132,8 @@ class PlacementAlternativeRow(Base):
     __tablename__ = "placement_alternatives"
 
     alternative_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    plan_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False
+    decision_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("decisions.decision_id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     strategy: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -164,7 +146,7 @@ class PlacementAlternativeRow(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_placement_alternatives_plan_rank", "plan_id", "rank"),)
+    __table_args__ = (Index("ix_placement_alternatives_decision_rank", "decision_id", "rank"),)
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +225,7 @@ class EventRow(Base):
     __tablename__ = "events"
 
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    tenant_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     chain_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -256,7 +238,7 @@ class EventRow(Base):
         # common "show me everything about job_xyz" query (§12).
         Index("ix_events_job_created", "job_id", "created_at"),
         Index("ix_events_chain_created", "chain_id", "created_at"),
-        Index("ix_events_tenant_created", "tenant_id", "created_at"),
+        Index("ix_events_user_created", "user_id", "created_at"),
         Index("ix_events_type_created", "type", "created_at"),
     )
 
@@ -270,8 +252,8 @@ class CredentialsRow(Base):
     __tablename__ = "credentials"
 
     credentials_ref: Mapped[str] = mapped_column(Text, primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("tenants.tenant_id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     scope_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     # §5: encrypted at rest in production; raw bytes column at the DB layer.
@@ -281,7 +263,7 @@ class CredentialsRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_credentials_tenant", "tenant_id"),
+        Index("ix_credentials_user", "user_id"),
         Index("ix_credentials_expires", "expires_at"),
     )
 
@@ -292,10 +274,9 @@ class CredentialsRow(Base):
 
 
 ALL_TABLES: tuple[type[Base], ...] = (
-    TenantRow,
+    UserRow,
     ResourceMapRow,
     JobRow,
-    PlanRow,
     DecisionRow,
     PlacementAlternativeRow,
     ChainRow,

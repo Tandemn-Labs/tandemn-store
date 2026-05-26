@@ -60,7 +60,7 @@ def test_output_ref_has_no_byte_range_field():
 def test_normalized_record_required_fields():
     rec = NormalizedRecord(
         input_id="in_1",
-        tenant_id="tnt_1",
+        user_id="usr_1",
         job_id="job_1",
         prompt="hello world",
     )
@@ -75,7 +75,7 @@ def test_all_models_forbid_extras():
     with pytest.raises(ValidationError):
         NormalizedRecord(
             input_id="i",
-            tenant_id="t",
+            user_id="t",
             job_id="j",
             prompt="p",
             bogus="nope",  # type: ignore[call-arg]
@@ -97,7 +97,7 @@ class _FakeConnector:
             yield PayloadRef(type=self.type, uri=f"fake://{i}")
 
     def read(self, payload_ref, creds=None):
-        yield NormalizedRecord(input_id="i", tenant_id="t", job_id="j", prompt="p")
+        yield NormalizedRecord(input_id="i", user_id="t", job_id="j", prompt="p")
 
     def write(self, output_ref, records, creds=None):
         return sum(1 for _ in records)

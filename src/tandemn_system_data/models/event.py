@@ -18,7 +18,7 @@ from tandemn_system_data.models._base import CanonicalModel, utc_now
 
 class Event(CanonicalModel):
     event_id: str = Field(default_factory=new_event_id)
-    tenant_id: str | None = None
+    user_id: str | None = None
     job_id: str | None = None
     chain_id: str | None = None
     type: str

@@ -41,8 +41,8 @@ from tandemn_system_data.clients import (
     PostgresClient,
     create_credentials_app,
 )
-from tandemn_system_data.db import Base, TenantRow
-from tandemn_system_data.ids import new_tenant_id
+from tandemn_system_data.db import Base, UserRow
+from tandemn_system_data.ids import new_user_id
 from tandemn_user_data.connectors import LocalFileConnector
 from tandemn_user_data.core import (
     ConnectorRegistry,
@@ -146,7 +146,7 @@ def test_section_7_full_lifecycle_through_real_http(
                 json.dumps(
                     {
                         "input_id": f"in_{i}",
-                        "tenant_id": "tnt_1",
+                        "user_id": "usr_1",
                         "job_id": "job_1",
                         "prompt": f"prompt {i}",
                     }
@@ -154,12 +154,12 @@ def test_section_7_full_lifecycle_through_real_http(
             )
             f.write("\n")
 
-    # ----- 2. Orca: persist a tenant and mint + persist a credential -------
-    tenant_id = new_tenant_id()
+    # ----- 2. Orca: persist a user and mint + persist a credential -------
+    user_id = new_user_id()
     with pg_client.begin() as s:
         s.add(
-            TenantRow(
-                tenant_id=tenant_id,
+            UserRow(
+                user_id=user_id,
                 name="phase-1d-e2e",
                 created_at=datetime.now(UTC),
             )
@@ -168,7 +168,7 @@ def test_section_7_full_lifecycle_through_real_http(
     # Issuer holds the cleartext credential (in-memory only).
     issuer = DevCredentialIssuer()
     issued = issuer.issue(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope={"prefix": str(tmp_path)},
         # LocalFileConnector doesn't actually need creds — we still go
         # through the resolver to exercise the whole §7 path.
@@ -178,7 +178,7 @@ def test_section_7_full_lifecycle_through_real_http(
     # CredentialStore is the canonical persistence — Orca writes here.
     store = CredentialStore(pg_client)
     store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json=issued.scope_json,
         # Serialize the secret_payload to JSON bytes per the new contract.
         secret_payload=json.dumps(issued.secret_payload).encode("utf-8"),
@@ -235,11 +235,11 @@ def test_expired_credential_fails_resolution(
     that workers can't fetch with expired creds."""
 
     # Seed an expired credential.
-    tenant_id = new_tenant_id()
+    user_id = new_user_id()
     with pg_client.begin() as s:
         s.add(
-            TenantRow(
-                tenant_id=tenant_id,
+            UserRow(
+                user_id=user_id,
                 name="expired",
                 created_at=datetime.now(UTC),
             )
@@ -247,7 +247,7 @@ def test_expired_credential_fails_resolution(
 
     store = CredentialStore(pg_client)
     ref = store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json={},
         secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),

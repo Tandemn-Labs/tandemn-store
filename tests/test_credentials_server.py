@@ -21,8 +21,8 @@ from tandemn_system_data.clients import (
     PostgresClient,
     create_credentials_app,
 )
-from tandemn_system_data.db import Base, TenantRow
-from tandemn_system_data.ids import new_tenant_id
+from tandemn_system_data.db import Base, UserRow
+from tandemn_system_data.ids import new_user_id
 
 pytestmark = pytest.mark.integration
 
@@ -61,10 +61,10 @@ def store(pg_client: PostgresClient) -> CredentialStore:
 
 
 @pytest.fixture
-def tenant_id(pg_client: PostgresClient) -> str:
-    tid = new_tenant_id()
+def user_id(pg_client: PostgresClient) -> str:
+    tid = new_user_id()
     with pg_client.begin() as s:
-        s.add(TenantRow(tenant_id=tid, name="srv-test", created_at=datetime.now(UTC)))
+        s.add(UserRow(user_id=tid, name="srv-test", created_at=datetime.now(UTC)))
     return tid
 
 
@@ -99,10 +99,10 @@ def test_healthz_requires_token(client: TestClient):
     assert r.json() == {"status": "ok"}
 
 
-def test_get_credential_round_trip(client: TestClient, store: CredentialStore, tenant_id: str):
+def test_get_credential_round_trip(client: TestClient, store: CredentialStore, user_id: str):
     creds_dict = {"access_key": "AKIAEXAMPLE", "secret_key": "very-secret"}
     ref = store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json={"prefix": "s3://customer/inputs/"},
         secret_payload=json.dumps(creds_dict).encode("utf-8"),
         expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -114,7 +114,7 @@ def test_get_credential_round_trip(client: TestClient, store: CredentialStore, t
     assert r.status_code == 200
     body = r.json()
     assert body["credentials_ref"] == ref
-    assert body["tenant_id"] == tenant_id
+    assert body["user_id"] == user_id
     assert body["scope_json"] == {"prefix": "s3://customer/inputs/"}
     # secret_payload arrives as the parsed JSON object — ready to hand to a connector.
     assert body["secret_payload"] == creds_dict
@@ -123,9 +123,9 @@ def test_get_credential_round_trip(client: TestClient, store: CredentialStore, t
     assert parsed > datetime.now(UTC)
 
 
-def test_unauthorized_without_token(client: TestClient, store: CredentialStore, tenant_id: str):
+def test_unauthorized_without_token(client: TestClient, store: CredentialStore, user_id: str):
     ref = store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json={},
         secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -134,9 +134,9 @@ def test_unauthorized_without_token(client: TestClient, store: CredentialStore, 
     assert r.status_code == 401
 
 
-def test_unauthorized_with_wrong_token(client: TestClient, store: CredentialStore, tenant_id: str):
+def test_unauthorized_with_wrong_token(client: TestClient, store: CredentialStore, user_id: str):
     ref = store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json={},
         secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -159,11 +159,11 @@ def test_unknown_ref_returns_404(client: TestClient):
 def test_expired_ref_returns_410(
     client: TestClient,
     store: CredentialStore,
-    tenant_id: str,
+    user_id: str,
     pg_client: PostgresClient,
 ):
     ref = store.put(
-        tenant_id=tenant_id,
+        user_id=user_id,
         scope_json={},
         secret_payload=b'"x"',
         expires_at=datetime.now(UTC) + timedelta(hours=1),

@@ -18,7 +18,7 @@ hand the parsed value directly to a connector (no separate decode step).
 Response shape:
   {
     \"credentials_ref\": \"cred_...\",
-    \"tenant_id\":       \"tnt_...\",
+    \"user_id\":       \"usr_...\",
     \"scope_json\":      {...},
     \"secret_payload\":  <parsed JSON object | array | string | null>,
     \"expires_at\":      ISO-8601 timestamp,
@@ -101,7 +101,7 @@ def create_credentials_app(
 
         return {
             "credentials_ref": row.credentials_ref,
-            "tenant_id": row.tenant_id,
+            "user_id": row.user_id,
             "scope_json": row.scope_json,
             "secret_payload": secret_payload,
             "expires_at": row.expires_at.isoformat(),

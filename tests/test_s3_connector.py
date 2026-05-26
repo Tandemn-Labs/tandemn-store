@@ -79,7 +79,7 @@ def test_index_prefix_emits_one_payload_ref_per_object(bucket: str):
             [
                 {
                     "input_id": f"in_{i}_{j}",
-                    "tenant_id": "tnt_1",
+                    "user_id": "usr_1",
                     "job_id": "job_1",
                     "prompt": f"prompt {i}.{j}",
                 }
@@ -105,7 +105,7 @@ def test_index_single_object_emits_one_ref(bucket: str):
     _put_jsonl(
         bucket,
         "inputs/single.jsonl",
-        [{"input_id": "i", "tenant_id": "t", "job_id": "j", "prompt": "p"}],
+        [{"input_id": "i", "user_id": "t", "job_id": "j", "prompt": "p"}],
     )
     conn = S3Connector()
     refs = list(
@@ -130,7 +130,7 @@ def test_read_returns_normalized_records(bucket: str):
         [
             {
                 "input_id": f"in_{i}",
-                "tenant_id": "tnt_1",
+                "user_id": "usr_1",
                 "job_id": "job_1",
                 "prompt": f"prompt {i}",
                 "metadata": {"i": i},
@@ -168,7 +168,7 @@ def test_write_to_prefix_creates_part_object(bucket: str):
     records = [
         NormalizedRecord(
             input_id=f"in_{i}",
-            tenant_id="tnt_1",
+            user_id="usr_1",
             job_id="job_1",
             prompt=f"reply {i}",
         )
@@ -213,7 +213,7 @@ def test_round_trip_index_read_write_read(bucket: str):
     in_records = [
         {
             "input_id": f"in_{i}",
-            "tenant_id": "tnt_1",
+            "user_id": "usr_1",
             "job_id": "job_1",
             "prompt": f"prompt {i}",
         }
@@ -235,7 +235,7 @@ def test_round_trip_index_read_write_read(bucket: str):
     outputs = [
         NormalizedRecord(
             input_id=p.input_id,
-            tenant_id=p.tenant_id,
+            user_id=p.user_id,
             job_id=p.job_id,
             prompt=f"reply to: {p.prompt}",
         )

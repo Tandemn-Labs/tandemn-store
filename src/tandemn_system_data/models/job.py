@@ -21,7 +21,7 @@ from tandemn_system_data.models.enums import JobKind, JobStatus
 
 class Job(CanonicalModel):
     job_id: str = Field(default_factory=new_job_id)
-    tenant_id: str
+    user_id: str
     kind: JobKind
     spec_json: dict[str, Any] = Field(default_factory=dict)
     input_source: dict[str, Any] = Field(default_factory=dict)

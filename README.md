@@ -84,8 +84,6 @@ For a visual of the canonical schema (tables, foreign keys, key
 columns) see [`DATABASE.md`](./DATABASE.md). The diagram renders inline
 on GitHub.
 
-The `tandemn_system_data → tandemn_user_data` direction is forbidden by
-`.importlinter` and checked on every PR. See `DATA_ARCHITECTURE.md` §1
-principle 2 for why.
-
-Workers must never `import tandemn_system_data`. CI will enforce this via `import-linter` once Phase 1b lands.
+The `tandemn_user_data → tandemn_system_data` direction is forbidden by
+`.importlinter` and checked on every PR. Workers must never import
+`tandemn_system_data`. See `DATA_ARCHITECTURE.md` §1 principle 2 for why.

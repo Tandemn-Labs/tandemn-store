@@ -19,7 +19,7 @@ from tandemn_system_data.models._base import CanonicalModel, utc_now
 
 class Credentials(CanonicalModel):
     credentials_ref: str = Field(default_factory=new_credentials_ref)
-    tenant_id: str
+    user_id: str
     scope_json: dict[str, Any] = Field(default_factory=dict)
     secret_payload: bytes
     expires_at: datetime

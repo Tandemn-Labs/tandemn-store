@@ -45,7 +45,7 @@ def input_jsonl(tmp_path: Path) -> Path:
                 json.dumps(
                     {
                         "input_id": f"in_{i}",
-                        "tenant_id": "tnt_1",
+                        "user_id": "usr_1",
                         "job_id": "job_1",
                         "prompt": f"prompt {i}",
                     }
@@ -112,7 +112,7 @@ def test_write_outputs_round_trips_through_local(tmp_path: Path):
         [
             NormalizedRecord(
                 input_id=f"in_{i}",
-                tenant_id="tnt_1",
+                user_id="usr_1",
                 job_id="job_1",
                 prompt=f"reply {i}",
             )

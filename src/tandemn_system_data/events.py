@@ -2,7 +2,7 @@
 
 Every event Tandemn emits has the same envelope (see models.Event):
 
-    { event_id, tenant_id?, job_id?, chain_id?, type, payload_json, created_at }
+    { event_id, user_id?, job_id?, chain_id?, type, payload_json, created_at }
 
 This module defines:
   - EventType: a Literal enum of the 14 canonical event types from §9.
@@ -97,18 +97,18 @@ class _PayloadBase(CanonicalModel):
 
 class JobSubmittedPayload(_PayloadBase):
     job_id: str
-    tenant_id: str
+    user_id: str
 
 
 class JobCompletedPayload(_PayloadBase):
     job_id: str
-    tenant_id: str
+    user_id: str
     final_status: JobStatus = JobStatus.COMPLETED
 
 
 class JobFailedPayload(_PayloadBase):
     job_id: str
-    tenant_id: str
+    user_id: str
     reason_code: str
     detail: str | None = None
 
@@ -118,13 +118,12 @@ class JobFailedPayload(_PayloadBase):
 
 class PlanRequestedPayload(_PayloadBase):
     job_id: str
-    tenant_id: str
+    user_id: str
 
 
 class PlanReturnedPayload(_PayloadBase):
     job_id: str
     decision_id: str
-    plan_id: str
 
 
 # --- Placement traversal (§6) ---------------------------------------------
@@ -134,7 +133,7 @@ class PlacementAlternativeEventPayload(_PayloadBase):
     """Common payload for placement.alternative_{started,full,partial,abandoned}."""
 
     job_id: str
-    plan_id: str
+    decision_id: str
     alternative_id: str
     rank: int
     status: AlternativeStatus
@@ -142,14 +141,14 @@ class PlacementAlternativeEventPayload(_PayloadBase):
 
 class PlacementExhaustedPayload(_PayloadBase):
     job_id: str
-    plan_id: str
+    decision_id: str
     achieved_throughput_tps: float
     target_throughput_tps: float
 
 
 class JobGroupAssembledPayload(_PayloadBase):
     job_id: str
-    plan_id: str
+    decision_id: str
     achieved_throughput_tps: float
     target_throughput_tps: float
     chain_ids: list[str]

@@ -25,7 +25,7 @@ def input_jsonl(tmp_path: Path) -> Path:
                 json.dumps(
                     {
                         "input_id": f"in_{i}",
-                        "tenant_id": "tnt_1",
+                        "user_id": "usr_1",
                         "job_id": "job_1",
                         "prompt": f"prompt {i}",
                         "metadata": {"i": i},
@@ -135,7 +135,7 @@ def test_write_appends_normalized_records(tmp_path: Path):
     records = [
         NormalizedRecord(
             input_id=f"in_{i}",
-            tenant_id="tnt_1",
+            user_id="usr_1",
             job_id="job_1",
             prompt=f"reply {i}",
         )
@@ -156,7 +156,7 @@ def test_write_appends_across_calls(tmp_path: Path):
     target = tmp_path / "outputs.jsonl"
     ref = OutputRef(type="local", uri=str(target))
 
-    rec = NormalizedRecord(input_id="in_x", tenant_id="t", job_id="j", prompt="p")
+    rec = NormalizedRecord(input_id="in_x", user_id="t", job_id="j", prompt="p")
     conn.write(ref, [rec])
     conn.write(ref, [rec])
     read_back = list(conn.read(PayloadRef(type="local", uri=str(target))))

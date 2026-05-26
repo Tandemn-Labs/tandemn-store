@@ -16,11 +16,10 @@ def test_new_id_has_correct_prefix_and_length():
 
 def test_per_kind_helpers_use_registered_prefixes():
     pairs = [
-        (ids.new_tenant_id(), "tnt_"),
+        (ids.new_user_id(), "usr_"),
         (ids.new_resource_map_id(), "rmap_"),
         (ids.new_job_id(), "job_"),
         (ids.new_decision_id(), "dec_"),
-        (ids.new_plan_id(), "plan_"),
         (ids.new_placement_alternative_id(), "alt_"),
         (ids.new_chain_id(), "chain_"),
         (ids.new_attempt_id(), "att_"),

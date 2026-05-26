@@ -57,7 +57,7 @@ class CredentialStore:
     def put(
         self,
         *,
-        tenant_id: str,
+        user_id: str,
         scope_json: dict[str, Any],
         secret_payload: bytes,
         expires_at: datetime,
@@ -67,7 +67,7 @@ class CredentialStore:
         """Persist a credential and return its credentials_ref.
 
         Args:
-            tenant_id        canonical tenant ID
+            user_id        canonical user ID
             scope_json       JSONB scope object (e.g. {"prefix": "s3://..."})
             secret_payload   raw bytes; in production these would be
                              encrypted at rest via pgcrypto or KMS
@@ -99,7 +99,7 @@ class CredentialStore:
             s.add(
                 CredentialsRow(
                     credentials_ref=ref,
-                    tenant_id=tenant_id,
+                    user_id=user_id,
                     scope_json=scope_json,
                     secret_payload=bytes(secret_payload),
                     expires_at=expires_at,
@@ -135,16 +135,16 @@ class CredentialStore:
         except (CredentialNotFound, CredentialExpired):
             return False
 
-    def list_for_tenant(
+    def list_for_user(
         self,
-        tenant_id: str,
+        user_id: str,
         *,
         include_expired: bool = False,
     ) -> list[CredentialsRow]:
-        """All credentials issued to a tenant. Useful for ops and audit."""
+        """All credentials issued to a user. Useful for ops and audit."""
         now = datetime.now(UTC)
         with self._pg.session() as s:
-            stmt = select(CredentialsRow).where(CredentialsRow.tenant_id == tenant_id)
+            stmt = select(CredentialsRow).where(CredentialsRow.user_id == user_id)
             if not include_expired:
                 stmt = stmt.where(CredentialsRow.expires_at > now)
             rows = list(s.execute(stmt).scalars())

@@ -12,7 +12,7 @@ an in-memory store paired with the LocalCredentialsCache resolver.
                      plus an opaque secret payload + scope + expiry.
 
   DevCredentialIssuer
-      .issue(tenant_id, scope, secret_payload, ttl_seconds) -> IssuedCredential
+      .issue(user_id, scope, secret_payload, ttl_seconds) -> IssuedCredential
       .bind_to_cache(cache)  populate a LocalCredentialsCache with all
                              currently-issued credentials. Lets a worker
                              in the same process resolve refs without
@@ -59,7 +59,7 @@ class IssuedCredential:
     """
 
     credentials_ref: str
-    tenant_id: str
+    user_id: str
     scope_json: dict[str, Any]
     secret_payload: Any
     expires_at: datetime
@@ -75,7 +75,7 @@ class DevCredentialIssuer:
     Usage:
         issuer = DevCredentialIssuer()
         issued = issuer.issue(
-            tenant_id="tnt_1",
+            user_id="usr_1",
             scope={"prefix": "s3://customer/inputs/"},
             secret_payload={"access_key": "k", "secret_key": "s"},
         )
@@ -92,15 +92,15 @@ class DevCredentialIssuer:
 
     def issue(
         self,
-        tenant_id: str,
+        user_id: str,
         scope: dict[str, Any],
         secret_payload: Any,
         *,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         rotated_from: str | None = None,
     ) -> IssuedCredential:
-        if not tenant_id:
-            raise ValueError("tenant_id is required")
+        if not user_id:
+            raise ValueError("user_id is required")
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be > 0")
 
@@ -108,7 +108,7 @@ class DevCredentialIssuer:
         now = datetime.now(UTC)
         issued = IssuedCredential(
             credentials_ref=ref,
-            tenant_id=tenant_id,
+            user_id=user_id,
             scope_json=scope,
             secret_payload=secret_payload,
             expires_at=now + timedelta(seconds=ttl_seconds),

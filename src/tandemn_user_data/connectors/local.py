@@ -109,7 +109,7 @@ class LocalFileConnector:
             row = json.loads(raw)
             yield NormalizedRecord(
                 input_id=str(row.get("input_id") or row.get("id") or ""),
-                tenant_id=str(row.get("tenant_id") or ""),
+                user_id=str(row.get("user_id") or ""),
                 job_id=str(row.get("job_id") or ""),
                 prompt=row.get("prompt", ""),
                 metadata=row.get("metadata", {}) or {},

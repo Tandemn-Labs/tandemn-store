@@ -86,7 +86,7 @@ class NormalizedRecord(_UserDataModel):
 
     Fields:
       input_id    stable per-record ID (connector-supplied or derived)
-      tenant_id   canonical tenant ID (from tandemn_system_data.ids); the
+      user_id   canonical user ID (from tandemn_system_data.ids); the
                   worker sees it but does not validate against Postgres
       job_id      canonical job ID
       prompt      the actual text to feed vLLM
@@ -94,7 +94,7 @@ class NormalizedRecord(_UserDataModel):
     """
 
     input_id: str
-    tenant_id: str
+    user_id: str
     job_id: str
     prompt: str
     metadata: dict[str, Any] = Field(default_factory=dict)

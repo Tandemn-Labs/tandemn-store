@@ -27,11 +27,10 @@ from ulid import ULID
 # prefix now avoids a future schema migration when theories become real.
 
 Kind = Literal[
-    "tenant",
+    "user",
     "resource_map",
     "job",
     "decision",
-    "plan",
     "placement_alternative",
     "chain",
     "attempt",
@@ -42,11 +41,10 @@ Kind = Literal[
 ]
 
 PREFIXES: dict[Kind, str] = {
-    "tenant": "tnt",
+    "user": "usr",
     "resource_map": "rmap",
     "job": "job",
     "decision": "dec",
-    "plan": "plan",
     "placement_alternative": "alt",
     "chain": "chain",
     "attempt": "att",
@@ -80,8 +78,8 @@ def new_id(kind: Kind) -> str:
 # `theory` is intentionally omitted; it is reserved-prefix-only for now.
 
 
-def new_tenant_id() -> str:
-    return new_id("tenant")
+def new_user_id() -> str:
+    return new_id("user")
 
 
 def new_resource_map_id() -> str:
@@ -94,10 +92,6 @@ def new_job_id() -> str:
 
 def new_decision_id() -> str:
     return new_id("decision")
-
-
-def new_plan_id() -> str:
-    return new_id("plan")
 
 
 def new_placement_alternative_id() -> str:
