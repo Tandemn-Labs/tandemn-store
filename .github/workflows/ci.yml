@@ -68,22 +68,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      minio:
-        image: minio/minio:RELEASE.2025-04-08T15-41-24Z
-        env:
-          MINIO_ROOT_USER: tandemn
-          MINIO_ROOT_PASSWORD: tandemn-dev-key
-        ports:
-          - 59000:9000
-        # GitHub Actions service containers don't support `command`,
-        # so MinIO runs with its default entrypoint. The default
-        # entrypoint is `minio server /data` when MINIO_* env vars
-        # are present, which is what we want for tests.
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 30
 
     env:
       TANDEMN_POSTGRES_URL: postgresql+psycopg://tandemn:tandemn@localhost:55432/tandemn
@@ -103,6 +87,26 @@ jobs:
 
       - name: Install deps
         run: uv sync --extra dev
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name tandemn-minio \
+            -p 59000:9000 \
+            -e MINIO_ROOT_USER=tandemn \
+            -e MINIO_ROOT_PASSWORD=tandemn-dev-key \
+            minio/minio:RELEASE.2025-04-08T15-41-24Z server /data
+
+          for i in {1..30}; do
+            if curl -fsS http://localhost:59000/minio/health/live >/dev/null; then
+              echo "MinIO is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "MinIO failed to become healthy"
+          docker logs tandemn-minio
+          exit 1
 
       - name: Alembic upgrade head
         run: uv run alembic upgrade head
