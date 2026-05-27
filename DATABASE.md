@@ -19,9 +19,9 @@ erDiagram
     users ||--o{ resource_maps   : "snapshots"
     users ||--o{ credentials     : "owns"
 
-    jobs ||--o{ decisions          : "produces"
+    jobs ||--o{ plans          : "produces"
 
-    decisions ||--o{ placement_alternatives  : "contains"
+    plans ||--o{ placement_alternatives  : "contains"
 
     placement_alternatives ||--o{ chains : "launches"
 
@@ -53,8 +53,8 @@ erDiagram
       TIMESTAMPTZ completed_at "nullable"
     }
 
-    decisions {
-      TEXT decision_id PK
+    plans {
+      TEXT plan_id PK
       TEXT job_id FK
       VARCHAR koi_version "nullable"
       JSONB rationale_json
@@ -65,7 +65,7 @@ erDiagram
 
     placement_alternatives {
       TEXT alternative_id PK
-      TEXT decision_id FK
+      TEXT plan_id FK
       INT rank
       VARCHAR strategy "pd_disaggregated | aggregate"
       NUMERIC pd_ratio "NULL for aggregate"
@@ -136,8 +136,8 @@ users(user_id)               ← resource_maps.user_id           CASCADE
 users(user_id)               ← jobs.user_id                    CASCADE
 users(user_id)               ← credentials.user_id             CASCADE
 
-jobs(job_id)                     ← decisions.job_id                  CASCADE
-decisions(decision_id)           ← placement_alternatives.decision_id CASCADE
+jobs(job_id)                     ← plans.job_id                  CASCADE
+plans(plan_id)           ← placement_alternatives.plan_id CASCADE
 
 placement_alternatives(alt_id)   ← chains.alternative_id             CASCADE
 chains(chain_id)                 ← attempts.chain_id                 CASCADE
@@ -152,8 +152,8 @@ This is the §8 "CP record alongside AP delivery" pattern.
 
 ## Read it in one sentence
 
-> A **user** submits **jobs**; Koi produces a **decision** for each job;
-> the decision carries both Koi's rationale and the executable placement
+> A **user** submits **jobs**; Koi produces a **plan** for each job;
+> the plan carries both Koi's rationale and the executable placement
 > plan. That plan contains ordered **placement alternatives** (with
 > `pd_ratio` for PD-disaggregated, NULL for
 > aggregate); each alternative launches **chains** (with role
@@ -170,8 +170,8 @@ Defined in `tandemn_system_data/db/orm.py`:
 
 - `resource_maps`: GIN(`snapshot_json` jsonb_path_ops) for hierarchical inventory queries; (user_id, captured_at)
 - `jobs`: (user_id, created_at); (status)
-- `decisions`: (job_id)
-- `placement_alternatives`: (decision_id, rank) — the natural order for fallback traversal
+- `plans`: (job_id)
+- `placement_alternatives`: (plan_id, rank) — the natural order for fallback traversal
 - `chains`: (alternative_id, role); (status)
 - `attempts`: (chain_id)
 - `outcomes`: (chain_id)

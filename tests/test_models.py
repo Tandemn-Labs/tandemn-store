@@ -19,7 +19,6 @@ from tandemn_system_data.models import (
     ChainRole,
     ChainStatus,
     Credentials,
-    Decision,
     Event,
     Job,
     JobKind,
@@ -28,6 +27,7 @@ from tandemn_system_data.models import (
     OutcomeStatus,
     PlacementAlternative,
     PlacementStrategy,
+    Plan,
     ResourceMap,
     User,
 )
@@ -87,19 +87,19 @@ def test_extras_forbidden():
 
 
 # ---------------------------------------------------------------------------
-# Decision (DATA_ARCHITECTURE.md §5)
+# Plan (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
 
 
-def test_decision_carries_rationale_and_executable_plan():
-    d = Decision(
+def test_plan_carries_rationale_and_executable_plan():
+    d = Plan(
         job_id="job_1",
         koi_version="koi-0.1",
         rationale_json={"why": "demo"},
         plan_json={"alternatives": []},
         slo_json={"target_throughput_tps": 1500},
     )
-    assert d.decision_id.startswith("dec_")
+    assert d.plan_id.startswith("plan_")
     assert d.koi_version == "koi-0.1"
     assert d.rationale_json == {"why": "demo"}
     assert d.plan_json == {"alternatives": []}
@@ -115,7 +115,7 @@ def test_pd_disaggregated_requires_pd_ratio():
     """§5: pd_ratio NULL for aggregate; required for pd_disaggregated."""
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            decision_id="dec_1",
+            plan_id="plan_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=None,
@@ -126,7 +126,7 @@ def test_pd_disaggregated_requires_pd_ratio():
 def test_aggregate_must_not_have_pd_ratio():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            decision_id="dec_1",
+            plan_id="plan_1",
             rank=0,
             strategy=PlacementStrategy.AGGREGATE,
             pd_ratio=1.0,
@@ -136,7 +136,7 @@ def test_aggregate_must_not_have_pd_ratio():
 
 def test_pd_disaggregated_accepts_positive_ratio():
     alt = PlacementAlternative(
-        decision_id="dec_1",
+        plan_id="plan_1",
         rank=0,
         strategy=PlacementStrategy.PD_DISAGGREGATED,
         pd_ratio=2.0,
@@ -156,7 +156,7 @@ def test_pd_disaggregated_accepts_positive_ratio():
 
 def test_aggregate_alternative_ok():
     alt = PlacementAlternative(
-        decision_id="dec_1",
+        plan_id="plan_1",
         rank=1,
         strategy=PlacementStrategy.AGGREGATE,
         pd_ratio=None,
@@ -175,14 +175,14 @@ def test_aggregate_alternative_ok():
 def test_pd_ratio_must_be_positive():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            decision_id="dec_1",
+            plan_id="plan_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=0,
         )
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            decision_id="dec_1",
+            plan_id="plan_1",
             rank=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=-1.0,
@@ -192,7 +192,7 @@ def test_pd_ratio_must_be_positive():
 def test_rank_must_be_non_negative():
     with pytest.raises(ValidationError):
         PlacementAlternative(
-            decision_id="dec_1",
+            plan_id="plan_1",
             rank=-1,
             strategy=PlacementStrategy.AGGREGATE,
         )

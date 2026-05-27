@@ -19,11 +19,11 @@ from tandemn_system_data.db import (
     Base,
     ChainRow,
     CredentialsRow,
-    DecisionRow,
     EventRow,
     JobRow,
     OutcomeRow,
     PlacementAlternativeRow,
+    PlanRow,
     ResourceMapRow,
     UserRow,
 )
@@ -31,11 +31,11 @@ from tandemn_system_data.ids import (
     new_attempt_id,
     new_chain_id,
     new_credentials_ref,
-    new_decision_id,
     new_event_id,
     new_job_id,
     new_outcome_id,
     new_placement_alternative_id,
+    new_plan_id,
     new_resource_map_id,
     new_user_id,
 )
@@ -91,7 +91,7 @@ def test_all_tables_created(pg_client: PostgresClient):
 
 
 def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
-    """Insert user \u2192 job \u2192 decision \u2192 plan \u2192 alt \u2192 chain \u2192
+    """Insert user \u2192 job \u2192 plan \u2192 plan \u2192 alt \u2192 chain \u2192
     attempt \u2192 outcome \u2192 event \u2192 credentials, then read them back.
 
     Anchored to DATA_ARCHITECTURE.md \u00a74.
@@ -101,7 +101,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
     user_id = new_user_id()
     resource_map_id = new_resource_map_id()
     job_id = new_job_id()
-    decision_id = new_decision_id()
+    plan_id = new_plan_id()
     alt_id = new_placement_alternative_id()
     chain_id = new_chain_id()
     attempt_id = new_attempt_id()
@@ -134,8 +134,8 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
             )
         )
         s.add(
-            DecisionRow(
-                decision_id=decision_id,
+            PlanRow(
+                plan_id=plan_id,
                 job_id=job_id,
                 koi_version="koi-0.1",
                 rationale_json={"why": "demo"},
@@ -148,7 +148,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         s.add(
             PlacementAlternativeRow(
                 alternative_id=alt_id,
-                decision_id=decision_id,
+                plan_id=plan_id,
                 rank=0,
                 strategy="pd_disaggregated",
                 pd_ratio=2.0,
@@ -231,8 +231,8 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         assert j.user_id == user_id
         assert j.input_source["uri"].startswith("s3://")
 
-        d = s.get(DecisionRow, decision_id)
-        assert d is not None and d.job_id == job_id and d.decision_id == decision_id
+        d = s.get(PlanRow, plan_id)
+        assert d is not None and d.job_id == job_id and d.plan_id == plan_id
 
         alt = s.get(PlacementAlternativeRow, alt_id)
         assert alt is not None
@@ -267,7 +267,7 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
     now = datetime.now(UTC)
     user_id = new_user_id()
     job_id = new_job_id()
-    decision_id = new_decision_id()
+    plan_id = new_plan_id()
     alt_id = new_placement_alternative_id()
 
     with pg_client.begin() as s:
@@ -287,8 +287,8 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
         )
         s.flush()
         s.add(
-            DecisionRow(
-                decision_id=decision_id,
+            PlanRow(
+                plan_id=plan_id,
                 job_id=job_id,
                 plan_json={},
                 slo_json={},
@@ -300,7 +300,7 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
         s.add(
             PlacementAlternativeRow(
                 alternative_id=alt_id,
-                decision_id=decision_id,
+                plan_id=plan_id,
                 rank=0,
                 strategy="aggregate",
                 pd_ratio=None,

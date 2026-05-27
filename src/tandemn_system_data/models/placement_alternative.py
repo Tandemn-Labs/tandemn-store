@@ -30,7 +30,7 @@ from tandemn_system_data.models.enums import AlternativeStatus, PlacementStrateg
 
 class PlacementAlternative(CanonicalModel):
     alternative_id: str = Field(default_factory=new_placement_alternative_id)
-    decision_id: str
+    plan_id: str
     rank: int = Field(ge=0, description="0 = first to try; higher = fallback order")
     strategy: PlacementStrategy
     pd_ratio: float | None = Field(

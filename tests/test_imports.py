@@ -32,7 +32,7 @@ def test_ids_prefix_registry():
 
     # Spot-check the canonical prefixes from DATA_ARCHITECTURE.md
     assert PREFIXES["job"] == "job"
-    assert PREFIXES["decision"] == "dec"
+    assert PREFIXES["plan"] == "plan"
     assert PREFIXES["placement_alternative"] == "alt"
     assert PREFIXES["chain"] == "chain"
     assert PREFIXES["attempt"] == "att"

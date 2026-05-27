@@ -123,7 +123,7 @@ class PlanRequestedPayload(_PayloadBase):
 
 class PlanReturnedPayload(_PayloadBase):
     job_id: str
-    decision_id: str
+    plan_id: str
 
 
 # --- Placement traversal (§6) ---------------------------------------------
@@ -133,7 +133,7 @@ class PlacementAlternativeEventPayload(_PayloadBase):
     """Common payload for placement.alternative_{started,full,partial,abandoned}."""
 
     job_id: str
-    decision_id: str
+    plan_id: str
     alternative_id: str
     rank: int
     status: AlternativeStatus
@@ -141,14 +141,14 @@ class PlacementAlternativeEventPayload(_PayloadBase):
 
 class PlacementExhaustedPayload(_PayloadBase):
     job_id: str
-    decision_id: str
+    plan_id: str
     achieved_throughput_tps: float
     target_throughput_tps: float
 
 
 class JobGroupAssembledPayload(_PayloadBase):
     job_id: str
-    decision_id: str
+    plan_id: str
     achieved_throughput_tps: float
     target_throughput_tps: float
     chain_ids: list[str]

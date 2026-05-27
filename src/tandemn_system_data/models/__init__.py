@@ -10,7 +10,6 @@ from tandemn_system_data.models._base import CanonicalModel, utc_now
 from tandemn_system_data.models.attempt import Attempt
 from tandemn_system_data.models.chain import Chain
 from tandemn_system_data.models.credentials import Credentials
-from tandemn_system_data.models.decision import Decision
 from tandemn_system_data.models.enums import (
     AlternativeStatus,
     AttemptStatus,
@@ -26,6 +25,7 @@ from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.job import Job
 from tandemn_system_data.models.outcome import Outcome
 from tandemn_system_data.models.placement_alternative import PlacementAlternative
+from tandemn_system_data.models.plan import Plan
 from tandemn_system_data.models.resource_map import ResourceMap
 from tandemn_system_data.models.user import User
 
@@ -37,7 +37,7 @@ __all__ = [
     "Attempt",
     "Chain",
     "Credentials",
-    "Decision",
+    "Plan",
     "Event",
     "Job",
     "Outcome",

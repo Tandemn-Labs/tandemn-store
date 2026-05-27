@@ -103,14 +103,14 @@ class JobRow(Base):
 
 
 # ---------------------------------------------------------------------------
-# §5: decisions
+# §5: plans
 # ---------------------------------------------------------------------------
 
 
-class DecisionRow(Base):
-    __tablename__ = "decisions"
+class PlanRow(Base):
+    __tablename__ = "plans"
 
-    decision_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    plan_id: Mapped[str] = mapped_column(Text, primary_key=True)
     job_id: Mapped[str] = mapped_column(
         Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
     )
@@ -120,7 +120,7 @@ class DecisionRow(Base):
     slo_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_decisions_job", "job_id"),)
+    __table_args__ = (Index("ix_plans_job", "job_id"),)
 
 
 # ---------------------------------------------------------------------------
@@ -132,8 +132,8 @@ class PlacementAlternativeRow(Base):
     __tablename__ = "placement_alternatives"
 
     alternative_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    decision_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("decisions.decision_id", ondelete="CASCADE"), nullable=False
+    plan_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     strategy: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -146,7 +146,7 @@ class PlacementAlternativeRow(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_placement_alternatives_decision_rank", "decision_id", "rank"),)
+    __table_args__ = (Index("ix_placement_alternatives_plan_rank", "plan_id", "rank"),)
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
     ResourceMapRow,
     JobRow,
-    DecisionRow,
+    PlanRow,
     PlacementAlternativeRow,
     ChainRow,
     AttemptRow,

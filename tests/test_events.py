@@ -90,7 +90,7 @@ def test_placement_alternative_events_share_one_payload_shape():
     """§9: alternative_started/full/partial/abandoned all share the same envelope."""
     common = {
         "job_id": "job_1",
-        "decision_id": "dec_1",
+        "plan_id": "plan_1",
         "alternative_id": "alt_1",
         "rank": 0,
         "status": AlternativeStatus.STARTED,

@@ -101,8 +101,8 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "decisions",
-        sa.Column("decision_id", sa.Text(), nullable=False),
+        "plans",
+        sa.Column("plan_id", sa.Text(), nullable=False),
         sa.Column("job_id", sa.Text(), nullable=False),
         sa.Column("koi_version", sa.String(length=64), nullable=True),
         sa.Column("rationale_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -110,14 +110,14 @@ def upgrade() -> None:
         sa.Column("slo_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["job_id"], ["jobs.job_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("decision_id"),
+        sa.PrimaryKeyConstraint("plan_id"),
     )
-    op.create_index("ix_decisions_job", "decisions", ["job_id"])
+    op.create_index("ix_plans_job", "plans", ["job_id"])
 
     op.create_table(
         "placement_alternatives",
         sa.Column("alternative_id", sa.Text(), nullable=False),
-        sa.Column("decision_id", sa.Text(), nullable=False),
+        sa.Column("plan_id", sa.Text(), nullable=False),
         sa.Column("rank", sa.Integer(), nullable=False),
         sa.Column("strategy", sa.String(length=32), nullable=False),
         sa.Column("pd_ratio", sa.Numeric(asdecimal=False), nullable=True),
@@ -125,13 +125,13 @@ def upgrade() -> None:
         sa.Column("estimated_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["decision_id"], ["decisions.decision_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["plan_id"], ["plans.plan_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("alternative_id"),
     )
     op.create_index(
-        "ix_placement_alternatives_decision_rank",
+        "ix_placement_alternatives_plan_rank",
         "placement_alternatives",
-        ["decision_id", "rank"],
+        ["plan_id", "rank"],
     )
 
     op.create_table(
@@ -187,10 +187,10 @@ def downgrade() -> None:
     op.drop_index("ix_chains_status", table_name="chains")
     op.drop_index("ix_chains_alternative_role", table_name="chains")
     op.drop_table("chains")
-    op.drop_index("ix_placement_alternatives_decision_rank", table_name="placement_alternatives")
+    op.drop_index("ix_placement_alternatives_plan_rank", table_name="placement_alternatives")
     op.drop_table("placement_alternatives")
-    op.drop_index("ix_decisions_job", table_name="decisions")
-    op.drop_table("decisions")
+    op.drop_index("ix_plans_job", table_name="plans")
+    op.drop_table("plans")
     op.drop_index("ix_resource_maps_user_captured", table_name="resource_maps")
     op.drop_index(
         "ix_resource_maps_snapshot_gin",

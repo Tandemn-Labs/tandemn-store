@@ -30,7 +30,7 @@ Kind = Literal[
     "user",
     "resource_map",
     "job",
-    "decision",
+    "plan",
     "placement_alternative",
     "chain",
     "attempt",
@@ -44,7 +44,7 @@ PREFIXES: dict[Kind, str] = {
     "user": "usr",
     "resource_map": "rmap",
     "job": "job",
-    "decision": "dec",
+    "plan": "plan",
     "placement_alternative": "alt",
     "chain": "chain",
     "attempt": "att",
@@ -90,8 +90,8 @@ def new_job_id() -> str:
     return new_id("job")
 
 
-def new_decision_id() -> str:
-    return new_id("decision")
+def new_plan_id() -> str:
+    return new_id("plan")
 
 
 def new_placement_alternative_id() -> str:
