@@ -18,12 +18,12 @@ def test_user_data_imports():
 def test_clients_surface():
     from tandemn_system_data.clients import (
         PostgresClient,
-        RedisStreamClient,
+        PostgresEventLog,
         S3BlobClient,
     )
 
     assert PostgresClient is not None
-    assert RedisStreamClient is not None
+    assert PostgresEventLog is not None
     assert S3BlobClient is not None
 
 

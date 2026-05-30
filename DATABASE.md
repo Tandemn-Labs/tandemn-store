@@ -27,6 +27,7 @@ erDiagram
 
     chains ||--o{ attempts  : "has"
     chains ||--o{ outcomes  : "produces"
+    event_consumer_offsets ||--o{ events : "cursor into"
 
     users {
       TEXT user_id PK
@@ -114,6 +115,12 @@ erDiagram
       TIMESTAMPTZ created_at
     }
 
+    event_consumer_offsets {
+      TEXT consumer_name PK
+      TEXT last_event_id "nullable"
+      TIMESTAMPTZ updated_at
+    }
+
     credentials {
       TEXT credentials_ref PK
       TEXT user_id FK
@@ -146,7 +153,8 @@ chains(chain_id)                 ← outcomes.chain_id                 CASCADE
 
 `events` deliberately has **no** foreign keys to `jobs` / `chains` /
 `users` — the audit log must survive cascade deletes of upstream rows.
-This is the §8 "CP record alongside AP delivery" pattern.
+Consumers track their own cursor in `event_consumer_offsets` and update it
+only after successful processing.
 
 ---
 
@@ -176,6 +184,7 @@ Defined in `tandemn_system_data/db/orm.py`:
 - `attempts`: (chain_id)
 - `outcomes`: (chain_id)
 - `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
+- `event_consumer_offsets`: primary key on `consumer_name`
 - `credentials`: (user_id); (expires_at)
 
 ---

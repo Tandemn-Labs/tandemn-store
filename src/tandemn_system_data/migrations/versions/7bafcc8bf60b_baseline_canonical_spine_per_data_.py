@@ -39,6 +39,14 @@ def upgrade() -> None:
     op.create_index("ix_events_type_created", "events", ["type", "created_at"])
 
     op.create_table(
+        "event_consumer_offsets",
+        sa.Column("consumer_name", sa.Text(), nullable=False),
+        sa.Column("last_event_id", sa.Text(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint("consumer_name"),
+    )
+
+    op.create_table(
         "users",
         sa.Column("user_id", sa.Text(), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
@@ -210,4 +218,5 @@ def downgrade() -> None:
     op.drop_index("ix_events_user_created", table_name="events")
     op.drop_index("ix_events_job_created", table_name="events")
     op.drop_index("ix_events_chain_created", table_name="events")
+    op.drop_table("event_consumer_offsets")
     op.drop_table("events")

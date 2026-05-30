@@ -22,6 +22,7 @@ from tandemn_system_data.models.enums import (
     ReasonCode,
 )
 from tandemn_system_data.models.event import Event
+from tandemn_system_data.models.event_consumer_offset import EventConsumerOffset
 from tandemn_system_data.models.job import Job
 from tandemn_system_data.models.outcome import Outcome
 from tandemn_system_data.models.placement_alternative import PlacementAlternative
@@ -39,6 +40,7 @@ __all__ = [
     "Credentials",
     "Plan",
     "Event",
+    "EventConsumerOffset",
     "Job",
     "Outcome",
     "PlacementAlternative",

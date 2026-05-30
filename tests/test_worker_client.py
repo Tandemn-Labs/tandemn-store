@@ -88,7 +88,7 @@ def test_fetch_payload_with_payload_ref_object(input_jsonl: Path):
 
 
 def test_fetch_payload_accepts_plain_dict(input_jsonl: Path):
-    """Workers pop chunks as dicts from Redis; WorkerClient should
+    """Workers pop chunks as dicts from the chunk queue; WorkerClient should
     coerce them to PayloadRef."""
     records = list(fetch_payload({"type": "local", "uri": str(input_jsonl), "format": "jsonl"}))
     assert len(records) == 6

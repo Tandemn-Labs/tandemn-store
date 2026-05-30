@@ -59,19 +59,8 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 56379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-
     env:
       TANDEMN_POSTGRES_URL: postgresql+psycopg://tandemn:tandemn@localhost:55432/tandemn
-      TANDEMN_REDIS_URL: redis://localhost:56379/0
       TANDEMN_S3_ENDPOINT: http://localhost:59000
 
     steps:

@@ -243,6 +243,14 @@ class EventRow(Base):
     )
 
 
+class EventConsumerOffsetRow(Base):
+    __tablename__ = "event_consumer_offsets"
+
+    consumer_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_event_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # §5 + §7: credentials
 # ---------------------------------------------------------------------------
@@ -283,5 +291,6 @@ ALL_TABLES: tuple[type[Base], ...] = (
     AttemptRow,
     OutcomeRow,
     EventRow,
+    EventConsumerOffsetRow,
     CredentialsRow,
 )

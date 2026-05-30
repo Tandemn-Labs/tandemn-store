@@ -4,7 +4,7 @@ This package owns:
   - Pydantic models for all canonical entities
   - SQLAlchemy ORM mirroring those models
   - Alembic migrations
-  - Postgres / Redis Streams / S3 (Tandemn-owned blobs) clients
+  - Postgres / Postgres event log / S3 (Tandemn-owned blobs) clients
   - Canonical ID generator and Event envelope
 
 Workers MUST NOT import this package. See DATA_ARCHITECTURE.md §2.

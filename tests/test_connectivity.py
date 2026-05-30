@@ -1,4 +1,4 @@
-"""Phase 1a integration smoke: connect to Postgres + Redis + MinIO.
+"""Phase 1a integration smoke: connect to Postgres + MinIO.
 
 Requires `make up` (docker-compose stack) to be running.
 Skip these unless the integration marker is selected.
@@ -10,7 +10,6 @@ import pytest
 
 from tandemn_system_data.clients import (
     PostgresClient,
-    RedisStreamClient,
     S3BlobClient,
 )
 
@@ -19,11 +18,6 @@ pytestmark = pytest.mark.integration
 
 def test_postgres_ping():
     client = PostgresClient()
-    assert client.ping() is True
-
-
-def test_redis_ping():
-    client = RedisStreamClient()
     assert client.ping() is True
 
 

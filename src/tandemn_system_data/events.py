@@ -13,9 +13,9 @@ This module defines:
 Event types are stable wire strings; never rename without a migration
 of the events table.
 
-Per §8: events are an AP delivery channel (Redis Streams) plus a CP
-audit log (Postgres `events` table). Writers persist to Postgres FIRST,
-then XADD to Redis. Consumers are idempotent on `event_id`.
+Per §8: events are Postgres rows. Writers append to the `events` table;
+consumers read by cursor from `event_consumer_offsets` and are idempotent
+on `event_id`.
 """
 
 from __future__ import annotations

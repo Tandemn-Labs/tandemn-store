@@ -2,7 +2,7 @@
 
 Thin wrapper: Orca passes the job's `input_source` blob (the JSONB
 column from the jobs table) and gets back a list of PayloadRefs ready
-to be enqueued in Redis.
+to be enqueued in the chunk queue.
 
 This module deliberately does NOT import tandemn_system_data — the
 indexer is a tandemn_user_data utility. Orca is responsible for

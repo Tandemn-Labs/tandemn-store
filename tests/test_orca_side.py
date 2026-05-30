@@ -192,7 +192,7 @@ def test_full_section_7_dataflow(input_jsonl: Path, registry: ConnectorRegistry)
 
     fetched: list[NormalizedRecord] = []
     for chunk in enqueued:
-        # Workers pop chunks as dicts from Redis; pass them through as dicts.
+        # Workers pop chunks as dicts from the chunk queue; pass them through as dicts.
         fetched.extend(worker.fetch_payload(chunk.model_dump()))
 
     assert [r.input_id for r in fetched] == [f"in_{i}" for i in range(8)]

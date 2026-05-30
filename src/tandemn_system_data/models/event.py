@@ -1,8 +1,7 @@
 """Event row model — DATA_ARCHITECTURE.md §5 (events table) and §9 (catalog).
 
-The durable side of the event bus: every event Redis Streams delivers
-is also persisted here as an append-only audit log. The full typed
-payload registry lives in tandemn_system_data.events.
+The durable event log row. The full typed payload registry lives in
+tandemn_system_data.events.
 """
 
 from __future__ import annotations

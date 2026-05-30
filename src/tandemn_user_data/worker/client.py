@@ -1,6 +1,6 @@
 """Worker-side entry points — DATA_ARCHITECTURE.md §7.
 
-Workers pop chunks from Redis and call these two functions. They never
+Workers pop chunk metadata from the chunk queue and call these two functions. They never
 touch the connector registry directly, never see source-specific URIs,
 and never hold long-lived credentials.
 
@@ -13,7 +13,7 @@ Usage in a worker loop:
     worker   = WorkerClient(default_registry(), resolver)
 
     while True:
-        chunk = redis_pop()
+        chunk = chunk_queue_pop()
         records = list(worker.fetch_payload(chunk["payload_ref"]))
         outputs = vllm.generate(records)
         worker.write_outputs(chunk["output_ref"], outputs)
