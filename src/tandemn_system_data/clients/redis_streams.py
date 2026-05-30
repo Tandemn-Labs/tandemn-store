@@ -23,7 +23,6 @@ from tandemn_system_data.models import Event
 
 DEFAULT_URL = "redis://localhost:56379/0"
 GLOBAL_STREAM = "events.global"
-USER_STREAM_PREFIX = "events.user."
 
 
 class StreamMessage:
@@ -54,16 +53,6 @@ class RedisStreamClient:
         return bool(self._client.ping())
 
     # ------------------------------------------------------------------
-    # Stream names
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def user_stream(user_id: str) -> str:
-        if not user_id:
-            raise ValueError("user_id is required")
-        return f"{USER_STREAM_PREFIX}{user_id}"
-
-    # ------------------------------------------------------------------
     # Emission
     # ------------------------------------------------------------------
 
@@ -75,7 +64,12 @@ class RedisStreamClient:
         maxlen: int | None = None,
         approximate: bool = True,
     ) -> str:
-        """XADD one event to a Redis stream and return the Redis message ID."""
+        """XADD one event to the global event stream and return the Redis message ID.
+
+        Tandemn uses a single global stream (events.global). Per-user fanout
+        was intentionally dropped; user-scoped views are served by querying
+        the Postgres events table instead.
+        """
         return self._r.xadd(
             stream,
             self._event_to_fields(event),
@@ -83,33 +77,11 @@ class RedisStreamClient:
             approximate=approximate,
         )
 
-    def emit_with_user_fanout(
-        self,
-        event: Event,
-        *,
-        maxlen: int | None = None,
-        approximate: bool = True,
-    ) -> tuple[str, str | None]:
-        """Emit to events.global and, if event.user_id exists, events.user.<id>.
-
-        Returns (global_message_id, user_message_id | None).
-        """
-        global_id = self.emit(event, stream=GLOBAL_STREAM, maxlen=maxlen, approximate=approximate)
-        user_id = None
-        if event.user_id:
-            user_id = self.emit(
-                event,
-                stream=self.user_stream(event.user_id),
-                maxlen=maxlen,
-                approximate=approximate,
-            )
-        return global_id, user_id
-
     # ------------------------------------------------------------------
     # Consumer groups
     # ------------------------------------------------------------------
 
-    def create_group(self, stream: str, group: str, *, start_id: str = "0") -> None:
+    def create_group(self, group: str, *, stream: str = GLOBAL_STREAM, start_id: str = "0") -> None:
         """Create a consumer group. Idempotent if the group already exists."""
         try:
             self._r.xgroup_create(stream, group, id=start_id, mkstream=True)
@@ -119,10 +91,10 @@ class RedisStreamClient:
 
     def read_group(
         self,
-        stream: str,
         group: str,
         consumer: str,
         *,
+        stream: str = GLOBAL_STREAM,
         count: int = 10,
         block_ms: int = 0,
         last_id: str = ">",
@@ -141,20 +113,20 @@ class RedisStreamClient:
         )
         return self._parse_xread(raw)
 
-    def ack(self, stream: str, group: str, *message_ids: str) -> int:
+    def ack(self, group: str, *message_ids: str, stream: str = GLOBAL_STREAM) -> int:
         if not message_ids:
             return 0
         return int(self._r.xack(stream, group, *message_ids))
 
-    def pending_summary(self, stream: str, group: str) -> dict[str, Any]:
+    def pending_summary(self, group: str, *, stream: str = GLOBAL_STREAM) -> dict[str, Any]:
         """Return Redis XPENDING summary for a group."""
         return self._r.xpending(stream, group)
 
     def pending_range(
         self,
-        stream: str,
         group: str,
         *,
+        stream: str = GLOBAL_STREAM,
         min_id: str = "-",
         max_id: str = "+",
         count: int = 10,
@@ -165,11 +137,11 @@ class RedisStreamClient:
 
     def claim_stale(
         self,
-        stream: str,
         group: str,
         consumer: str,
         message_ids: list[str],
         *,
+        stream: str = GLOBAL_STREAM,
         min_idle_ms: int,
     ) -> list[StreamMessage]:
         """Claim pending messages that have been idle for at least min_idle_ms."""
@@ -183,7 +155,7 @@ class RedisStreamClient:
     # ------------------------------------------------------------------
 
     def read_range(
-        self, stream: str, *, start: str = "-", end: str = "+", count: int = 100
+        self, stream: str = GLOBAL_STREAM, *, start: str = "-", end: str = "+", count: int = 100
     ) -> list[StreamMessage]:
         raw = self._r.xrange(stream, min=start, max=end, count=count)
         return [StreamMessage(mid, self._fields_to_event(fields)) for mid, fields in raw]

@@ -21,7 +21,7 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 **Phase 1d (done):** `CredentialStore` (canonical persistence), `/credentials/<ref>` FastAPI app behind a worker-bearer-token header, `HttpCredentialResolver` (worker-side, no system_data imports), full §7 lifecycle e2e through real HTTP, `import-linter` enforcing the §1 principle 2 boundary, GitHub Actions CI running lint + unit + import-linter + integration + `alembic check` on every PR.
 
-**Phase 1e (done):** `RedisStreamClient` implements the live event bus side of §8: emit to `events.global`, user fanout to `events.user.<user_id>`, consumer group creation, group reads, ack, pending inspection, stale claim, and range replay/debug helpers.
+**Phase 1e (done):** `RedisStreamClient` implements the live event bus side of §8: emit to the single global stream `events.global`, consumer group creation, group reads, ack, pending inspection, stale claim, and range replay/debug helpers.
 
 **Phase 2 (next):** Strangler-fig integration into `tandemn-system` (Orca) — `USE_CANONICAL_STORE` feature flag, `submit_batch` cutover, real STS / KMS / Vault behind `CredentialIssuer`, replace the rest of the webhook flows with Redis Streams events.
 
