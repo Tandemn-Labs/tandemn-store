@@ -8,5 +8,12 @@ from tandemn_user_data.worker.client import (
     fetch_payload,
     write_outputs,
 )
+from tandemn_user_data.worker.redis_chunk_queue import RedisChunkQueueWorker
 
-__all__ = ["WorkerClient", "default_registry", "fetch_payload", "write_outputs"]
+__all__ = [
+    "RedisChunkQueueWorker",
+    "WorkerClient",
+    "default_registry",
+    "fetch_payload",
+    "write_outputs",
+]

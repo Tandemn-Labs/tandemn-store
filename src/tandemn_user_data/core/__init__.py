@@ -14,6 +14,15 @@ from tandemn_user_data.core.base import (
     InputConnector,
     OutputConnector,
 )
+from tandemn_user_data.core.chunk import (
+    ChunkLease,
+    ChunkProgress,
+    ChunkQueueMeta,
+    ChunkRef,
+    ChunkState,
+    ChunkStatus,
+    QueuedChunk,
+)
 from tandemn_user_data.core.credentials_client import (
     HttpCredentialResolver,
     LocalCredentialsCache,
@@ -28,6 +37,12 @@ from tandemn_user_data.core.record import (
 __all__ = [
     "ConnectorRegistry",
     "CredentialResolver",
+    "ChunkLease",
+    "ChunkProgress",
+    "ChunkQueueMeta",
+    "ChunkRef",
+    "ChunkState",
+    "ChunkStatus",
     "HttpCredentialResolver",
     "InputConnector",
     "LocalCredentialsCache",
@@ -36,4 +51,5 @@ __all__ = [
     "OutputConnector",
     "OutputRef",
     "PayloadRef",
+    "QueuedChunk",
 ]

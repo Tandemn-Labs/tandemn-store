@@ -18,6 +18,9 @@ dependencies = [
     "alembic>=1.13",
     "psycopg[binary]>=3.2",
 
+    # Redis chunk queue (hot worker queue; not event delivery)
+    "redis>=5.0",
+
     # S3 / MinIO
     "boto3>=1.34",
     "botocore>=1.34",

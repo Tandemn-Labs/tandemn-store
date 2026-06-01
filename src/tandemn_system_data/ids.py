@@ -33,6 +33,7 @@ Kind = Literal[
     "plan",
     "placement_alternative",
     "chain",
+    "chunk",
     "attempt",
     "event",
     "outcome",
@@ -47,6 +48,7 @@ PREFIXES: dict[Kind, str] = {
     "plan": "plan",
     "placement_alternative": "alt",
     "chain": "chain",
+    "chunk": "chunk",
     "attempt": "att",
     "event": "evt",
     "outcome": "out",
@@ -100,6 +102,10 @@ def new_placement_alternative_id() -> str:
 
 def new_chain_id() -> str:
     return new_id("chain")
+
+
+def new_chunk_id() -> str:
+    return new_id("chunk")
 
 
 def new_attempt_id() -> str:

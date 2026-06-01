@@ -13,7 +13,7 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 ## Status
 
-**Phase 1a (done):** scaffold + connectivity. Both packages import. Postgres and MinIO start via `make up`. Smoke tests pass.
+**Phase 1a (done):** scaffold + connectivity. Both packages import. Postgres, Redis, and MinIO start via `make up`. Smoke tests pass.
 
 **Phase 1b (done):** canonical IDs, Pydantic models, typed event payload registry, SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5, Alembic baseline migration, and an end-to-end roundtrip test that goes through the migration.
 
@@ -22,6 +22,8 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 **Phase 1d (done):** `CredentialStore` (canonical persistence), `/credentials/<ref>` FastAPI app behind a worker-bearer-token header, `HttpCredentialResolver` (worker-side, no system_data imports), full §7 lifecycle e2e through real HTTP, `import-linter` enforcing the §1 principle 2 boundary, GitHub Actions CI running lint + unit + import-linter + integration + `alembic check` on every PR.
 
 **Phase 1e (done):** `PostgresEventLog` implements the MVP event path in §8: append event rows, read by cursor, maintain `event_consumer_offsets`, and let Koi/Orca poll events durably without Redis Streams.
+
+**Phase 1f (done):** Redis-backed chunk queue implements the hot batch work queue: Orca/admin creates queues and reclaims expired chunks; workers pull, renew, complete, and fail chunks using `payload_ref`, `output_ref`, and `chain_id` metadata.
 
 **Phase 2 (next):** Strangler-fig integration into `tandemn-system` (Orca) — `USE_CANONICAL_STORE` feature flag, `submit_batch` cutover, real STS / KMS / Vault behind `CredentialIssuer`, replace the rest of the webhook flows with Postgres events.
 
@@ -32,7 +34,7 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 Requires Python 3.12, [uv](https://github.com/astral-sh/uv), and Docker.
 
 ```bash
-# 1. Bring up Postgres + MinIO
+# 1. Bring up Postgres + Redis + MinIO
 make up
 
 # 2. Install deps into a local .venv
@@ -45,7 +47,7 @@ make test
 make test-integration
 ```
 
-Tear down with `make down`. Wipe local data with `make down && docker volume rm tandemn-store_postgres-data tandemn-store_minio-data`.
+Tear down with `make down`. Wipe local data with `make down && docker volume rm tandemn-store_postgres-data tandemn-store_redis-data tandemn-store_minio-data`.
 
 ---
 
@@ -56,9 +58,10 @@ Ports are non-default to avoid clashing with developer-local installs.
 | Service  | Host URL                             | Container port | Credentials                          |
 |----------|--------------------------------------|----------------|--------------------------------------|
 | Postgres | `localhost:55432`                    | 5432           | `tandemn` / `tandemn` / db `tandemn` |
+| Redis    | `localhost:56379`                    | 6379           | none                                 |
 | MinIO    | `localhost:59000` (API), `:59001` (console) | 9000 / 9001 | `tandemn` / `tandemn-dev-key`        |
 
-Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_S3_ENDPOINT`, `TANDEMN_S3_ACCESS_KEY`, `TANDEMN_S3_SECRET_KEY`, `TANDEMN_S3_BUCKET`.
+Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_REDIS_URL`, `TANDEMN_S3_ENDPOINT`, `TANDEMN_S3_ACCESS_KEY`, `TANDEMN_S3_SECRET_KEY`, `TANDEMN_S3_BUCKET`.
 
 ---
 
@@ -70,14 +73,16 @@ src/
 │   ├── models/                  # Pydantic models           (Phase 1b ✅)
 │   ├── db/                      # SQLAlchemy ORM            (Phase 1b ✅)
 │   ├── migrations/              # Alembic                   (Phase 1b ✅)
-│   ├── clients/                 # Postgres / events / S3    (Phase 1a/e ✅)
+│   ├── clients/                 # Postgres / events / chunk admin / S3
+│   │                            # (Phase 1a/e/f ✅)
 │   ├── ids.py                   # canonical ID generator    (Phase 1b ✅)
 │   └── events.py                # Event envelope            (Phase 1b ✅)
 └── tandemn_user_data/           # user payloads (Orca + workers + CLI)
     ├── core/                    # NormalizedRecord, refs +
     │                            # HttpCredentialResolver    (Phase 1c/d ✅)
     ├── connectors/              # S3 / local / future       (Phase 1c ✅)
-    ├── worker/                  # WorkerClient              (Phase 1c ✅)
+    ├── worker/                  # WorkerClient + chunk worker queue
+    │                            # (Phase 1c/f ✅)
     └── orca/                    # indexer / dev issuer      (Phase 1c ✅)
 ```
 

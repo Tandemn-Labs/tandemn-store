@@ -1,6 +1,7 @@
 """Storage clients: Postgres, Postgres event log, S3 (Tandemn-owned blobs),
 plus the CredentialStore that backs the worker-facing credentials endpoint."""
 
+from tandemn_system_data.clients.chunk_queue_admin import RedisChunkQueueAdmin
 from tandemn_system_data.clients.credentials_server import (
     DEFAULT_AUTH_HEADER,
     create_credentials_app,
@@ -20,6 +21,7 @@ __all__ = [
     "CredentialNotFound",
     "CredentialStore",
     "PostgresEventLog",
+    "RedisChunkQueueAdmin",
     "PostgresClient",
     "S3BlobClient",
     "create_credentials_app",
