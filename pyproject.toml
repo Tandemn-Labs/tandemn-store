@@ -16,6 +16,7 @@ dependencies = [
     # SQL + migrations
     "sqlalchemy>=2.0",
     "alembic>=1.13",
+    # Postgres driver for SQLAlchemy.
     "psycopg[binary]>=3.2",
 
     # Redis chunk queue (hot worker queue; not event delivery)
@@ -37,9 +38,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-asyncio>=0.23",
     "ruff>=0.5",
-    "mypy>=1.10",
+    # Enforces that tandemn_user_data never imports tandemn_system_data.
     "import-linter>=2.0",
     # Run the credentials FastAPI app on a real socket for the
     # end-to-end resolver test.
@@ -47,6 +47,7 @@ dev = [
 ]
 
 [build-system]
+# Used because we ship two top-level packages from src/.
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
