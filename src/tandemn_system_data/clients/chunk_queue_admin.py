@@ -1,11 +1,8 @@
 """Orca/admin-side Redis chunk queue operations.
 
-This is the control-plane half of the chunk queue. Orca uses it to create
-job queues, inspect progress, reclaim expired chunks, force reclaim dead
-chains, and clean up.
-
-Workers use tandemn_user_data.worker.RedisChunkQueueWorker for pull /
-renew / complete / fail.
+This is the control-plane Redis queue client. Orca uses it for all chunk
+queue operations, including worker-proxied pull/renew/complete/fail
+requests. Workers call Orca over HTTP; workers do not talk to Redis.
 """
 
 from __future__ import annotations
@@ -16,10 +13,11 @@ import time
 
 import redis
 
-from tandemn_user_data.core import ChunkProgress, QueuedChunk
+from tandemn_user_data.core import ChunkLease, ChunkProgress, OutputRef, PayloadRef, QueuedChunk
 
 DEFAULT_REDIS_URL = "redis://localhost:56379/0"
 DEFAULT_MAX_RETRIES = 3
+DEFAULT_LEASE_TTL_SEC = 120
 _PREFIX = "chunk:job"
 
 
@@ -123,14 +121,35 @@ return reclaimed
 """
 
 
+_RENEW_LUA = """
+local chunk_key = KEYS[1]
+local chain_id = ARGV[1]
+local new_lease = ARGV[2]
+
+local status = redis.call('HGET', chunk_key, 'status')
+local owner = redis.call('HGET', chunk_key, 'chain_id')
+
+if status ~= 'inflight' or owner ~= chain_id then
+    return {0, 0}
+end
+
+redis.call('HSET', chunk_key, 'lease_until', new_lease)
+return {1, new_lease}
+"""
+
+
 class RedisChunkQueueAdmin:
     """Orca/admin-side Redis chunk queue client."""
 
-    def __init__(self, redis_url: str | None = None) -> None:
+    def __init__(
+        self, redis_url: str | None = None, *, lease_ttl_sec: int = DEFAULT_LEASE_TTL_SEC
+    ) -> None:
         self.url = redis_url or os.getenv("TANDEMN_REDIS_URL", DEFAULT_REDIS_URL)
+        self.lease_ttl_sec = lease_ttl_sec
         self._r = redis.from_url(self.url, decode_responses=True)
         self._reclaim_script = self._r.register_script(_RECLAIM_LUA)
         self._force_reclaim_script = self._r.register_script(_FORCE_RECLAIM_LUA)
+        self._renew_script = self._r.register_script(_RENEW_LUA)
 
     def create_job_queue(
         self,
@@ -168,6 +187,88 @@ class RedisChunkQueueAdmin:
             pipe.rpush(_pending_key(job_id), chunk.chunk_id)
             pipe.rpush(_output_order_key(job_id), chunk.chunk_id)
         pipe.execute()
+
+    def pull_chunk(self, job_id: str, chain_id: str) -> ChunkLease | None:
+        """Claim the next pending chunk for a chain.
+
+        Intended to be called by Orca's `/chunks/next` endpoint, not by
+        workers directly.
+        """
+        chunk_id = self._r.lpop(_pending_key(job_id))
+        if chunk_id is None:
+            return None
+
+        now = time.time()
+        lease_until = now + self.lease_ttl_sec
+        pipe = self._r.pipeline(transaction=True)
+        pipe.sadd(_inflight_key(job_id), chunk_id)
+        pipe.hset(
+            _chunk_key(job_id, chunk_id),
+            mapping={
+                "status": "inflight",
+                "chain_id": chain_id,
+                "started_at": now,
+                "lease_until": lease_until,
+            },
+        )
+        pipe.hgetall(_chunk_key(job_id, chunk_id))
+        result = pipe.execute()
+        return _lease_from_hash(result[-1])
+
+    def renew_lease(self, job_id: str, chunk_id: str, chain_id: str) -> bool:
+        new_lease = time.time() + self.lease_ttl_sec
+        renewed, _ = self._renew_script(
+            keys=[_chunk_key(job_id, chunk_id)],
+            args=[chain_id, new_lease],
+        )
+        return bool(int(renewed))
+
+    def complete_chunk(self, job_id: str, chunk_id: str, chain_id: str) -> ChunkProgress:
+        if self._r.sismember(_completed_key(job_id), chunk_id):
+            return self.get_progress(job_id)
+
+        info = self._r.hgetall(_chunk_key(job_id, chunk_id))
+        if not info:
+            raise KeyError(f"unknown chunk_id={chunk_id!r} for job_id={job_id!r}")
+        if info.get("status") != "inflight" or info.get("chain_id") != chain_id:
+            raise PermissionError(f"chain_id={chain_id!r} does not own chunk_id={chunk_id!r}")
+
+        now = time.time()
+        pipe = self._r.pipeline(transaction=True)
+        pipe.srem(_inflight_key(job_id), chunk_id)
+        pipe.srem(_failed_key(job_id), chunk_id)
+        pipe.sadd(_completed_key(job_id), chunk_id)
+        pipe.hset(
+            _chunk_key(job_id, chunk_id),
+            mapping={"status": "completed", "completed_at": now, "lease_until": 0},
+        )
+        pipe.execute()
+        return self.get_progress(job_id)
+
+    def fail_chunk(
+        self, job_id: str, chunk_id: str, chain_id: str, reason_code: str
+    ) -> ChunkProgress:
+        info = self._r.hgetall(_chunk_key(job_id, chunk_id))
+        if not info:
+            raise KeyError(f"unknown chunk_id={chunk_id!r} for job_id={job_id!r}")
+        if info.get("status") != "inflight" or info.get("chain_id") != chain_id:
+            raise PermissionError(f"chain_id={chain_id!r} does not own chunk_id={chunk_id!r}")
+
+        now = time.time()
+        pipe = self._r.pipeline(transaction=True)
+        pipe.srem(_inflight_key(job_id), chunk_id)
+        pipe.sadd(_failed_key(job_id), chunk_id)
+        pipe.hset(
+            _chunk_key(job_id, chunk_id),
+            mapping={
+                "status": "failed",
+                "completed_at": now,
+                "lease_until": 0,
+                "reason_code": reason_code,
+            },
+        )
+        pipe.execute()
+        return self.get_progress(job_id)
 
     def reclaim_expired(self, job_id: str) -> dict[str, int]:
         reclaimed, failed = self._reclaim_script(
@@ -220,3 +321,16 @@ class RedisChunkQueueAdmin:
         for chunk_id in chunk_ids:
             pipe.delete(_chunk_key(job_id, chunk_id))
         pipe.execute()
+
+
+def _lease_from_hash(info: dict[str, str]) -> ChunkLease:
+    return ChunkLease(
+        chunk_id=info["chunk_id"],
+        job_id=info["job_id"],
+        chain_id=info["chain_id"],
+        payload_ref=PayloadRef.model_validate(json.loads(info["payload_ref"])),
+        output_ref=OutputRef.model_validate(json.loads(info["output_ref"])),
+        lease_until=float(info["lease_until"]),
+        retry_count=int(info.get("retry_count", 0)),
+        num_records=int(info.get("num_records", 0)),
+    )
