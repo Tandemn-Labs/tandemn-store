@@ -18,7 +18,6 @@ import tandemn_user_data
 from tandemn_user_data.core import (
     ConnectorRegistry,
     InputConnector,
-    LocalCredentialsCache,
     NormalizedRecord,
     NullResolver,
     OutputConnector,
@@ -137,19 +136,6 @@ def test_protocols_runtime_checkable():
 def test_null_resolver_returns_none():
     assert NullResolver().resolve("any_ref") is None
     assert NullResolver().resolve(None) is None
-
-
-def test_local_cache_put_and_resolve():
-    cache = LocalCredentialsCache()
-    cache.put("cred_abc", {"access_key": "k", "secret_key": "s"})
-    assert cache.resolve("cred_abc") == {"access_key": "k", "secret_key": "s"}
-    assert cache.resolve(None) is None
-
-
-def test_local_cache_unknown_ref_raises():
-    cache = LocalCredentialsCache()
-    with pytest.raises(KeyError):
-        cache.resolve("missing")
 
 
 # ---------------------------------------------------------------------------

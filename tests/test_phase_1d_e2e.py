@@ -2,8 +2,7 @@ r"""End-to-end test of the full Phase 1d credentials lifecycle.
 
 Reproduces the DATA_ARCHITECTURE.md §7 sequence in code:
 
-    Orca mints credential (DevCredentialIssuer.issue)
-        -> persists into Postgres (CredentialStore.put)
+    Orca creates a credentials_ref and persists it into Postgres (CredentialStore.put)
         -> indexes the user data source into PayloadRefs
         -> chunks carry credentials_ref
 
@@ -48,10 +47,7 @@ from tandemn_user_data.core import (
     ConnectorRegistry,
     HttpCredentialResolver,
 )
-from tandemn_user_data.orca import (
-    DevCredentialIssuer,
-    index_source,
-)
+from tandemn_user_data.orca import index_source
 from tandemn_user_data.worker import WorkerClient
 
 pytestmark = pytest.mark.integration
@@ -154,7 +150,7 @@ def test_section_7_full_lifecycle_through_real_http(
             )
             f.write("\n")
 
-    # ----- 2. Orca: persist a user and mint + persist a credential -------
+    # ----- 2. Orca: persist a user and persist a credential -------
     user_id = new_user_id()
     with pg_client.begin() as s:
         s.add(
@@ -165,25 +161,17 @@ def test_section_7_full_lifecycle_through_real_http(
             )
         )
 
-    # Issuer holds the cleartext credential (in-memory only).
-    issuer = DevCredentialIssuer()
-    issued = issuer.issue(
-        user_id=user_id,
-        scope={"prefix": str(tmp_path)},
-        # LocalFileConnector doesn't actually need creds — we still go
-        # through the resolver to exercise the whole §7 path.
-        secret_payload={"note": "phase-1d-e2e secret"},
-    )
-
     # CredentialStore is the canonical persistence — Orca writes here.
     store = CredentialStore(pg_client)
+    credentials_ref = "cred_phase_1d_e2e"
+    secret_payload = {"note": "phase-1d-e2e secret"}
     store.put(
         user_id=user_id,
-        scope_json=issued.scope_json,
+        scope_json={"prefix": str(tmp_path)},
         # Serialize the secret_payload to JSON bytes per the new contract.
-        secret_payload=json.dumps(issued.secret_payload).encode("utf-8"),
-        expires_at=issued.expires_at,
-        credentials_ref=issued.credentials_ref,
+        secret_payload=json.dumps(secret_payload).encode("utf-8"),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        credentials_ref=credentials_ref,
     )
 
     # ----- 3. Orca: index the source into PayloadRefs ----------------------
@@ -205,7 +193,7 @@ def test_section_7_full_lifecycle_through_real_http(
     assert len(refs) == 3
 
     # Orca attaches credentials_ref onto each PayloadRef before enqueue.
-    enqueued = [ref.model_copy(update={"credentials_ref": issued.credentials_ref}) for ref in refs]
+    enqueued = [ref.model_copy(update={"credentials_ref": credentials_ref}) for ref in refs]
 
     # ----- 4. Worker: real HTTP-based resolver hitting the live server ----
     resolver = HttpCredentialResolver(
@@ -213,7 +201,7 @@ def test_section_7_full_lifecycle_through_real_http(
         token=WORKER_TOKEN,
     )
     # Sanity: directly resolving returns the parsed payload Orca minted.
-    assert resolver.resolve(issued.credentials_ref) == {"note": "phase-1d-e2e secret"}
+    assert resolver.resolve(credentials_ref) == secret_payload
 
     worker = WorkerClient(registry=registry, resolver=resolver)
 

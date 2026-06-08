@@ -9,9 +9,7 @@ Per DATA_ARCHITECTURE.md §5 and §7:
 
 This module is the canonical-store side of that lifecycle: persistence,
 lookup, and expiry handling. It deliberately takes primitive arguments
-instead of an IssuedCredential so tandemn_system_data has zero coupling
-to tandemn_user_data. Orca (which imports both) is the place that
-translates one to the other.
+so tandemn_system_data has zero coupling to tandemn_user_data.
 
 Storage contract: `secret_payload` is bytes containing UTF-8 JSON.
 The credentials_server endpoint JSON-decodes it before returning; the

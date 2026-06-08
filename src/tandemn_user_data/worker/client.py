@@ -7,9 +7,9 @@ and never hold long-lived credentials.
 Usage in a worker loop:
 
     from tandemn_user_data.worker import WorkerClient, default_registry
-    from tandemn_user_data.core import LocalCredentialsCache
+    from tandemn_user_data.core import HttpCredentialResolver
 
-    resolver = LocalCredentialsCache()             # or HTTP-backed in prod
+    resolver = HttpCredentialResolver(base_url=ORCA_URL, token=WORKER_TOKEN)
     worker   = WorkerClient(default_registry(), resolver)
 
     while True:

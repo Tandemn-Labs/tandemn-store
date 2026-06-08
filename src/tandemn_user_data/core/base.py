@@ -35,8 +35,8 @@ class CredentialResolver(Protocol):
     underlying connector needs (e.g. an AWS access_key/secret_key dict
     for S3, a Snowflake login dict, ...). Implementations:
 
-      - Production: call Orca's narrow GET /credentials/<ref> over mTLS.
-      - Tests / dev: in-memory cache, see worker.LocalCredentialsCache.
+      - Production/MVP: call Orca's narrow GET /credentials/<ref>.
+      - Tests: use a tiny fake object implementing this protocol.
 
     Returning None is valid for connectors that don't need credentials
     (e.g. local filesystem).

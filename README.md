@@ -17,7 +17,7 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 **Phase 1b (done):** canonical IDs, Pydantic models, typed event payload registry, SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5, Alembic baseline migration, and an end-to-end roundtrip test that goes through the migration.
 
-**Phase 1c (done):** `tandemn_user_data` core types (`PayloadRef`, `OutputRef`, `NormalizedRecord`), connector protocols + registry, `LocalFileConnector` (JSONL on disk), `S3Connector` (JSONL on S3/MinIO), worker-side `WorkerClient` / `fetch_payload` / `write_outputs`, Orca-side `index_source` and `DevCredentialIssuer`, and an end-to-end test of the full §7 dataflow.
+**Phase 1c (done):** `tandemn_user_data` core types (`PayloadRef`, `OutputRef`, `NormalizedRecord`), connector protocols + registry, `LocalFileConnector` (JSONL on disk), `S3Connector` (JSONL on S3/MinIO), worker-side `WorkerClient` / `fetch_payload` / `write_outputs`, Orca-side `index_source`, and an end-to-end test of the full §7 dataflow.
 
 **Phase 1d (done):** `CredentialStore` (canonical persistence), `/credentials/<ref>` FastAPI app behind a worker-bearer-token header, `HttpCredentialResolver` (worker-side, no system_data imports), full §7 lifecycle e2e through real HTTP, `import-linter` enforcing the §1 principle 2 boundary, GitHub Actions CI running lint + unit + import-linter + integration + `alembic check` on every PR.
 
@@ -83,7 +83,7 @@ src/
     ├── connectors/              # S3 / local / future       (Phase 1c ✅)
     ├── worker/                  # WorkerClient + chunk worker queue
     │                            # (Phase 1c/f ✅)
-    └── orca/                    # indexer / dev issuer      (Phase 1c ✅)
+    └── orca/                    # source indexer            (Phase 1c ✅)
 ```
 
 For a visual of the canonical schema (tables, foreign keys, key

@@ -17,8 +17,6 @@ from pathlib import Path
 import pytest
 
 from tandemn_user_data.core import (
-    ConnectorRegistry,
-    LocalCredentialsCache,
     NormalizedRecord,
     NullResolver,
     OutputRef,
@@ -149,22 +147,3 @@ def test_resolver_is_called_with_credentials_ref(input_jsonl: Path):
     )
     list(client.fetch_payload(ref))
     assert calls == ["cred_abc"]
-
-
-def test_local_credentials_cache_used_for_s3_shaped_creds():
-    """Confirms the cache resolves the value a worker would pass to a
-    real connector. Connector itself is not invoked here."""
-    cache = LocalCredentialsCache()
-    cache.put(
-        "cred_abc",
-        {"access_key": "k", "secret_key": "s", "endpoint": "http://minio"},
-    )
-    client = WorkerClient(
-        registry=ConnectorRegistry(),  # empty registry; we only test resolver path
-        resolver=cache,
-    )
-    assert client._resolver.resolve("cred_abc") == {
-        "access_key": "k",
-        "secret_key": "s",
-        "endpoint": "http://minio",
-    }

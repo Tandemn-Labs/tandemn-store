@@ -5,7 +5,7 @@ This package owns:
   - InputConnector / OutputConnector protocols
   - Reference connectors (LocalFileConnector, S3Connector)
   - Worker-side fetch_payload / write_outputs
-  - Orca-side indexer + credentials_issuer
+  - Orca-side indexer
 
 Imported by Orca, workers, and CLI. Does NOT import tandemn_system_data.
 """

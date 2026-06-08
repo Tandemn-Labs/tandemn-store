@@ -3,7 +3,7 @@
 Re-exports:
   - PayloadRef, OutputRef, NormalizedRecord
   - InputConnector, OutputConnector, ConnectorRegistry (protocols)
-  - CredentialResolver protocol + LocalCredentialsCache / NullResolver
+  - CredentialResolver protocol + HttpCredentialResolver / NullResolver
 """
 
 from __future__ import annotations
@@ -17,15 +17,10 @@ from tandemn_user_data.core.base import (
 from tandemn_user_data.core.chunk import (
     ChunkLease,
     ChunkProgress,
-    ChunkQueueMeta,
-    ChunkRef,
-    ChunkState,
-    ChunkStatus,
     QueuedChunk,
 )
 from tandemn_user_data.core.credentials_client import (
     HttpCredentialResolver,
-    LocalCredentialsCache,
     NullResolver,
 )
 from tandemn_user_data.core.record import (
@@ -39,13 +34,8 @@ __all__ = [
     "CredentialResolver",
     "ChunkLease",
     "ChunkProgress",
-    "ChunkQueueMeta",
-    "ChunkRef",
-    "ChunkState",
-    "ChunkStatus",
     "HttpCredentialResolver",
     "InputConnector",
-    "LocalCredentialsCache",
     "NormalizedRecord",
     "NullResolver",
     "OutputConnector",
