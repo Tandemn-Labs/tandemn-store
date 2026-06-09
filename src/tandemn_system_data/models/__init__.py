@@ -11,7 +11,6 @@ from tandemn_system_data.models.attempt import Attempt
 from tandemn_system_data.models.chain import Chain
 from tandemn_system_data.models.credentials import Credentials
 from tandemn_system_data.models.enums import (
-    AlternativeStatus,
     AttemptStatus,
     ChainRole,
     ChainStatus,
@@ -19,14 +18,17 @@ from tandemn_system_data.models.enums import (
     JobStatus,
     OutcomeStatus,
     PlacementStrategy,
+    RankStatus,
     ReasonCode,
 )
 from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.event_consumer_offset import EventConsumerOffset
 from tandemn_system_data.models.job import Job
+from tandemn_system_data.models.koi_tick import KoiTick
 from tandemn_system_data.models.outcome import Outcome
-from tandemn_system_data.models.placement_alternative import PlacementAlternative
 from tandemn_system_data.models.plan import Plan
+from tandemn_system_data.models.plan_job import PlanJob
+from tandemn_system_data.models.rank import Rank
 from tandemn_system_data.models.resource_map import ResourceMap
 from tandemn_system_data.models.user import User
 
@@ -42,12 +44,14 @@ __all__ = [
     "Event",
     "EventConsumerOffset",
     "Job",
+    "KoiTick",
     "Outcome",
-    "PlacementAlternative",
+    "Rank",
     "ResourceMap",
+    "PlanJob",
     "User",
     # Enums
-    "AlternativeStatus",
+    "RankStatus",
     "AttemptStatus",
     "ChainRole",
     "ChainStatus",

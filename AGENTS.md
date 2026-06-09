@@ -22,8 +22,8 @@ This file is for coding agents working in `tandemn-store`. Keep it lean: this re
 
 - Pydantic models, SQLAlchemy ORM, Alembic migrations, `DATABASE.md`, and `DATA_ARCHITECTURE.md` must stay in sync.
 - Any ORM schema change requires an Alembic migration and an `alembic check` pass.
-- The current canonical hierarchy is: `user -> job -> plan -> placement_alternative -> chain -> attempt/outcome/event`.
-- `plans` are the collapsed Koi object: they contain both rationale (`rationale_json`, `koi_version`) and executable placement (`plan_json`, `slo_json`). Do not reintroduce a separate `decisions` table unless explicitly requested.
+- The current canonical hierarchy is: `user -> koi_tick -> plan -> rank -> chain -> attempt/outcome/event`, with `plan_jobs` joining plans to jobs.
+- `plans` are multi-job Koi scheduler plans produced by ticks. They contain rationale (`rationale_json`, `koi_version`), executable placement (`plan_json`, `slo_json`), and required throughput. Do not reintroduce a separate `decisions` table unless explicitly requested.
 - Use Postgres JSONB for schemaless-but-attached state (`plan_json`, `sizing_json`, `metrics_json`, `input_source`, `output_target`). Do not add Mongo/Dynamo just for hierarchical blobs.
 
 ## Control Plane / Data Plane Boundary

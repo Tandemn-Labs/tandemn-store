@@ -13,25 +13,27 @@ from tandemn_system_data.events import (
     PAYLOAD_REGISTRY,
     ChainAttemptStartedPayload,
     JobSubmittedPayload,
-    PlacementAlternativeEventPayload,
+    RankEventPayload,
     payload_model_for,
     validate_payload,
 )
-from tandemn_system_data.models import AlternativeStatus, ChainRole, Event
+from tandemn_system_data.models import ChainRole, Event, RankStatus
 
-# The exact 14 event types listed in DATA_ARCHITECTURE.md §9.
+# The exact event types listed in DATA_ARCHITECTURE.md §9.
 # If §9 changes, this list MUST change in lockstep.
 _DOC_EVENT_TYPES = {
     "job.submitted",
     "job.completed",
     "job.failed",
-    "plan.requested",
-    "plan.returned",
-    "placement.alternative_started",
-    "placement.alternative_full",
-    "placement.alternative_partial",
-    "placement.alternative_abandoned",
-    "placement.exhausted",
+    "tick.started",
+    "tick.completed",
+    "plan.created",
+    "plan.throughput_met",
+    "plan.exhausted",
+    "rank.started",
+    "rank.realized",
+    "rank.completed",
+    "rank.failed",
     "job_group.assembled",
     "chain.attempt_started",
     "chain.failed",
@@ -63,7 +65,7 @@ def test_validate_payload_accepts_correct_shape():
         {
             "chain_id": "chain_1",
             "attempt_id": "att_1",
-            "alternative_id": "alt_1",
+            "rank_id": "rank_1",
             "role": "decode",
             "target_node": "gpu-3",
         },
@@ -86,23 +88,21 @@ def test_validate_payload_rejects_extras():
         )
 
 
-def test_placement_alternative_events_share_one_payload_shape():
-    """§9: alternative_started/full/partial/abandoned all share the same envelope."""
+def test_rank_lifecycle_events_share_one_payload_shape():
+    """§9: rank.started/completed/failed share one payload shape."""
     common = {
-        "job_id": "job_1",
         "plan_id": "plan_1",
-        "alternative_id": "alt_1",
-        "rank": 0,
-        "status": AlternativeStatus.STARTED,
+        "rank_id": "rank_1",
+        "rank_index": 0,
+        "status": RankStatus.STARTED,
     }
     for event_type in (
-        "placement.alternative_started",
-        "placement.alternative_full",
-        "placement.alternative_partial",
-        "placement.alternative_abandoned",
+        "rank.started",
+        "rank.completed",
+        "rank.failed",
     ):
         payload = validate_payload(event_type, common)
-        assert isinstance(payload, PlacementAlternativeEventPayload)
+        assert isinstance(payload, RankEventPayload)
 
 
 def test_event_envelope_carries_typed_payload_as_dict():

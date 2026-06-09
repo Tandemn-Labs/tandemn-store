@@ -12,7 +12,6 @@ import pytest
 from pydantic import ValidationError
 
 from tandemn_system_data.models import (
-    AlternativeStatus,
     Attempt,
     AttemptStatus,
     Chain,
@@ -23,11 +22,14 @@ from tandemn_system_data.models import (
     Job,
     JobKind,
     JobStatus,
+    KoiTick,
     Outcome,
     OutcomeStatus,
-    PlacementAlternative,
     PlacementStrategy,
     Plan,
+    PlanJob,
+    Rank,
+    RankStatus,
     ResourceMap,
     User,
 )
@@ -87,36 +89,51 @@ def test_extras_forbidden():
 
 
 # ---------------------------------------------------------------------------
-# Plan (DATA_ARCHITECTURE.md §5)
+# KoiTick / Plan / PlanJob (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
+
+
+def test_koi_tick_defaults():
+    tick = KoiTick(user_id="usr_1", waiting_job_count=2, running_job_count=1)
+    assert tick.tick_id.startswith("tick_")
+    assert tick.status == "started"
+    assert tick.waiting_job_count == 2
 
 
 def test_plan_carries_rationale_and_executable_plan():
     d = Plan(
-        job_id="job_1",
+        tick_id="tick_1",
         koi_version="koi-0.1",
         rationale_json={"why": "demo"},
-        plan_json={"alternatives": []},
+        plan_json={"ranks": []},
         slo_json={"target_throughput_tps": 1500},
+        required_throughput_tps=1500,
     )
     assert d.plan_id.startswith("plan_")
     assert d.koi_version == "koi-0.1"
     assert d.rationale_json == {"why": "demo"}
-    assert d.plan_json == {"alternatives": []}
+    assert d.plan_json == {"ranks": []}
     assert d.slo_json["target_throughput_tps"] == 1500
+    assert d.required_throughput_tps == 1500
+
+
+def test_plan_job_defaults():
+    plan_job = PlanJob(plan_id="plan_1", job_id="job_1", required_throughput_tps=500)
+    assert plan_job.priority == 0
+    assert plan_job.status == "admitted"
 
 
 # ---------------------------------------------------------------------------
-# PlacementAlternative (DATA_ARCHITECTURE.md §5 notes + §6)
+# Rank (DATA_ARCHITECTURE.md §5 notes + §6)
 # ---------------------------------------------------------------------------
 
 
 def test_pd_disaggregated_requires_pd_ratio():
     """§5: pd_ratio NULL for aggregate; required for pd_disaggregated."""
     with pytest.raises(ValidationError):
-        PlacementAlternative(
+        Rank(
             plan_id="plan_1",
-            rank=0,
+            rank_index=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=None,
             sizing_json={"prefill": {}, "decode": {}},
@@ -125,9 +142,9 @@ def test_pd_disaggregated_requires_pd_ratio():
 
 def test_aggregate_must_not_have_pd_ratio():
     with pytest.raises(ValidationError):
-        PlacementAlternative(
+        Rank(
             plan_id="plan_1",
-            rank=0,
+            rank_index=0,
             strategy=PlacementStrategy.AGGREGATE,
             pd_ratio=1.0,
             sizing_json={"aggregate": {}},
@@ -135,9 +152,9 @@ def test_aggregate_must_not_have_pd_ratio():
 
 
 def test_pd_disaggregated_accepts_positive_ratio():
-    alt = PlacementAlternative(
+    alt = Rank(
         plan_id="plan_1",
-        rank=0,
+        rank_index=0,
         strategy=PlacementStrategy.PD_DISAGGREGATED,
         pd_ratio=2.0,
         sizing_json={
@@ -151,13 +168,13 @@ def test_pd_disaggregated_accepts_positive_ratio():
         estimated_throughput_tps=1500,
     )
     assert alt.pd_ratio == 2.0
-    assert alt.status is AlternativeStatus.PENDING
+    assert alt.status is RankStatus.PENDING
 
 
-def test_aggregate_alternative_ok():
-    alt = PlacementAlternative(
+def test_aggregate_rank_ok():
+    alt = Rank(
         plan_id="plan_1",
-        rank=1,
+        rank_index=1,
         strategy=PlacementStrategy.AGGREGATE,
         pd_ratio=None,
         sizing_json={
@@ -169,21 +186,21 @@ def test_aggregate_alternative_ok():
         },
         estimated_throughput_tps=1600,
     )
-    assert alt.alternative_id.startswith("alt_")
+    assert alt.rank_id.startswith("rank_")
 
 
 def test_pd_ratio_must_be_positive():
     with pytest.raises(ValidationError):
-        PlacementAlternative(
+        Rank(
             plan_id="plan_1",
-            rank=0,
+            rank_index=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=0,
         )
     with pytest.raises(ValidationError):
-        PlacementAlternative(
+        Rank(
             plan_id="plan_1",
-            rank=0,
+            rank_index=0,
             strategy=PlacementStrategy.PD_DISAGGREGATED,
             pd_ratio=-1.0,
         )
@@ -191,9 +208,9 @@ def test_pd_ratio_must_be_positive():
 
 def test_rank_must_be_non_negative():
     with pytest.raises(ValidationError):
-        PlacementAlternative(
+        Rank(
             plan_id="plan_1",
-            rank=-1,
+            rank_index=-1,
             strategy=PlacementStrategy.AGGREGATE,
         )
 
@@ -207,7 +224,7 @@ def test_chain_accepts_all_three_roles():
     """§5: role: prefill | decode | aggregate."""
     for role in (ChainRole.PREFILL, ChainRole.DECODE, ChainRole.AGGREGATE):
         c = Chain(
-            alternative_id="alt_1",
+            rank_id="rank_1",
             role=role,
             shape_json={"hw": "H100"},
             parallelism_json={"tp": 2, "pp": 4},

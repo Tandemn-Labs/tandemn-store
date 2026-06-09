@@ -18,12 +18,15 @@ erDiagram
     users ||--o{ jobs            : "owns"
     users ||--o{ resource_maps   : "snapshots"
     users ||--o{ credentials     : "owns"
+    users ||--o{ koi_ticks       : "schedules"
 
-    jobs ||--o{ plans          : "produces"
+    koi_ticks ||--o{ plans       : "produces"
+    plans ||--o{ plan_jobs       : "includes"
+    jobs ||--o{ plan_jobs        : "admitted"
 
-    plans ||--o{ placement_alternatives  : "contains"
+    plans ||--o{ ranks  : "contains"
 
-    placement_alternatives ||--o{ chains : "launches"
+    ranks ||--o{ chains : "launches"
 
     chains ||--o{ attempts  : "has"
     chains ||--o{ outcomes  : "produces"
@@ -54,31 +57,54 @@ erDiagram
       TIMESTAMPTZ completed_at "nullable"
     }
 
+    koi_ticks {
+      TEXT tick_id PK
+      TEXT user_id FK
+      TIMESTAMPTZ started_at
+      TIMESTAMPTZ completed_at "nullable"
+      VARCHAR status
+      INT waiting_job_count
+      INT running_job_count
+      JSONB metadata_json
+    }
+
     plans {
       TEXT plan_id PK
-      TEXT job_id FK
+      TEXT tick_id FK
       VARCHAR koi_version "nullable"
       JSONB rationale_json
       JSONB plan_json
       JSONB slo_json
+      NUMERIC required_throughput_tps "nullable"
+      VARCHAR status
       TIMESTAMPTZ created_at
     }
 
-    placement_alternatives {
-      TEXT alternative_id PK
+    plan_jobs {
+      TEXT plan_id PK, FK
+      TEXT job_id PK, FK
+      INT priority
+      NUMERIC required_throughput_tps "nullable"
+      VARCHAR status
+      TIMESTAMPTZ admitted_at
+    }
+
+    ranks {
+      TEXT rank_id PK
       TEXT plan_id FK
-      INT rank
+      INT rank_index
       VARCHAR strategy "pd_disaggregated | aggregate"
       NUMERIC pd_ratio "NULL for aggregate"
       JSONB sizing_json
       NUMERIC estimated_throughput_tps "nullable"
+      NUMERIC realized_throughput_tps "nullable"
       VARCHAR status
       TIMESTAMPTZ created_at
     }
 
     chains {
       TEXT chain_id PK
-      TEXT alternative_id FK
+      TEXT rank_id FK
       VARCHAR role "prefill | decode | aggregate"
       JSONB shape_json
       JSONB parallelism_json
@@ -141,12 +167,15 @@ The same graph in text, useful for grep and for non-Mermaid renderers.
 ```
 users(user_id)               ← resource_maps.user_id           CASCADE
 users(user_id)               ← jobs.user_id                    CASCADE
-users(user_id)               ← credentials.user_id             CASCADE
+users(user_id)                   ← credentials.user_id             CASCADE
+users(user_id)                   ← koi_ticks.user_id               CASCADE
 
-jobs(job_id)                     ← plans.job_id                  CASCADE
-plans(plan_id)           ← placement_alternatives.plan_id CASCADE
+koi_ticks(tick_id)               ← plans.tick_id                   CASCADE
+plans(plan_id)                   ← plan_jobs.plan_id               CASCADE
+jobs(job_id)                     ← plan_jobs.job_id                CASCADE
+plans(plan_id)                   ← ranks.plan_id                   CASCADE
 
-placement_alternatives(alt_id)   ← chains.alternative_id             CASCADE
+ranks(rank_id)   ← chains.rank_id             CASCADE
 chains(chain_id)                 ← attempts.chain_id                 CASCADE
 chains(chain_id)                 ← outcomes.chain_id                 CASCADE
 ```
@@ -160,11 +189,12 @@ only after successful processing.
 
 ## Read it in one sentence
 
-> A **user** submits **jobs**; Koi produces a **plan** for each job;
-> the plan carries both Koi's rationale and the executable placement
-> plan. That plan contains ordered **placement alternatives** (with
+> A **user** submits **jobs**; each Koi tick considers waiting/running
+> jobs and produces a multi-job **plan**. The plan carries both Koi's
+> rationale and the executable placement plan. That plan contains ordered
+> **ranks** (with
 > `pd_ratio` for PD-disaggregated, NULL for
-> aggregate); each alternative launches **chains** (with role
+> aggregate); each rank launches **chains** (with role
 > prefill / decode / aggregate); each chain has **attempts** and produces
 > **outcomes**; every state change emits an **event** into the durable
 > audit log; **credentials** are short-lived, scoped secrets the worker
@@ -178,9 +208,11 @@ Defined in `tandemn_system_data/db/orm.py`:
 
 - `resource_maps`: GIN(`snapshot_json` jsonb_path_ops) for hierarchical inventory queries; (user_id, captured_at)
 - `jobs`: (user_id, created_at); (status)
-- `plans`: (job_id)
-- `placement_alternatives`: (plan_id, rank) — the natural order for fallback traversal
-- `chains`: (alternative_id, role); (status)
+- `koi_ticks`: (user_id, started_at); (status)
+- `plans`: (tick_id); (status)
+- `plan_jobs`: (job_id); (status)
+- `ranks`: (plan_id, rank_index) — the natural order for deployment traversal
+- `chains`: (rank_id, role); (status)
 - `attempts`: (chain_id)
 - `outcomes`: (chain_id)
 - `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12

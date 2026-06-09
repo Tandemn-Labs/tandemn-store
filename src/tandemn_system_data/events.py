@@ -1,21 +1,7 @@
-"""Event envelope + typed payload registry (DATA_ARCHITECTURE.md §9).
+"""Event envelope + typed payload registry.
 
-Every event Tandemn emits has the same envelope (see models.Event):
-
-    { event_id, user_id?, job_id?, chain_id?, type, payload_json, created_at }
-
-This module defines:
-  - EventType: a Literal enum of the 14 canonical event types from §9.
-  - Typed payload models per event type.
-  - A registry mapping type -> payload model so consumers can validate
-    incoming events.
-
-Event types are stable wire strings; never rename without a migration
-of the events table.
-
-Per §8: events are Postgres rows. Writers append to the `events` table;
-consumers read by cursor from `event_consumer_offsets` and are idempotent
-on `event_id`.
+Events are Postgres rows. Writers append to the `events` table; consumers
+read by cursor from `event_consumer_offsets` and are idempotent on `event_id`.
 """
 
 from __future__ import annotations
@@ -25,55 +11,42 @@ from typing import Any, Literal
 from pydantic import Field
 
 from tandemn_system_data.models._base import CanonicalModel
-from tandemn_system_data.models.enums import (
-    AlternativeStatus,
-    ChainRole,
-    JobStatus,
-    OutcomeStatus,
-)
-
-# ---------------------------------------------------------------------------
-# Event type registry (DATA_ARCHITECTURE.md §9)
-# ---------------------------------------------------------------------------
-
+from tandemn_system_data.models.enums import ChainRole, JobStatus, OutcomeStatus, RankStatus
 
 EventType = Literal[
-    # Job lifecycle
     "job.submitted",
     "job.completed",
     "job.failed",
-    # Planning
-    "plan.requested",
-    "plan.returned",
-    # Placement traversal (§6)
-    "placement.alternative_started",
-    "placement.alternative_full",
-    "placement.alternative_partial",
-    "placement.alternative_abandoned",
-    "placement.exhausted",
+    "tick.started",
+    "tick.completed",
+    "plan.created",
+    "plan.throughput_met",
+    "plan.exhausted",
+    "rank.started",
+    "rank.realized",
+    "rank.completed",
+    "rank.failed",
     "job_group.assembled",
-    # Chain lifecycle
     "chain.attempt_started",
     "chain.failed",
     "chain.completed",
-    # Ratio enforcement (§6)
     "ratio.violated",
-    # Outcome bookkeeping
     "outcome.recorded",
 ]
-
 
 ALL_EVENT_TYPES: tuple[str, ...] = (
     "job.submitted",
     "job.completed",
     "job.failed",
-    "plan.requested",
-    "plan.returned",
-    "placement.alternative_started",
-    "placement.alternative_full",
-    "placement.alternative_partial",
-    "placement.alternative_abandoned",
-    "placement.exhausted",
+    "tick.started",
+    "tick.completed",
+    "plan.created",
+    "plan.throughput_met",
+    "plan.exhausted",
+    "rank.started",
+    "rank.realized",
+    "rank.completed",
+    "rank.failed",
     "job_group.assembled",
     "chain.attempt_started",
     "chain.failed",
@@ -83,16 +56,8 @@ ALL_EVENT_TYPES: tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Payload models
-# ---------------------------------------------------------------------------
-
-
 class _PayloadBase(CanonicalModel):
     """All payloads forbid extras so the wire format stays tight."""
-
-
-# --- Job lifecycle ---------------------------------------------------------
 
 
 class JobSubmittedPayload(_PayloadBase):
@@ -113,54 +78,63 @@ class JobFailedPayload(_PayloadBase):
     detail: str | None = None
 
 
-# --- Planning --------------------------------------------------------------
+class TickStartedPayload(_PayloadBase):
+    tick_id: str
+    user_id: str
+    waiting_job_count: int = 0
+    running_job_count: int = 0
 
 
-class PlanRequestedPayload(_PayloadBase):
-    job_id: str
+class TickCompletedPayload(_PayloadBase):
+    tick_id: str
     user_id: str
 
 
-class PlanReturnedPayload(_PayloadBase):
-    job_id: str
+class PlanCreatedPayload(_PayloadBase):
     plan_id: str
+    tick_id: str
+    job_ids: list[str]
 
 
-# --- Placement traversal (§6) ---------------------------------------------
-
-
-class PlacementAlternativeEventPayload(_PayloadBase):
-    """Common payload for placement.alternative_{started,full,partial,abandoned}."""
-
-    job_id: str
-    plan_id: str
-    alternative_id: str
-    rank: int
-    status: AlternativeStatus
-
-
-class PlacementExhaustedPayload(_PayloadBase):
-    job_id: str
+class PlanThroughputMetPayload(_PayloadBase):
     plan_id: str
     achieved_throughput_tps: float
-    target_throughput_tps: float
+    required_throughput_tps: float
+
+
+class PlanExhaustedPayload(_PayloadBase):
+    plan_id: str
+    achieved_throughput_tps: float
+    required_throughput_tps: float
+
+
+class RankEventPayload(_PayloadBase):
+    plan_id: str
+    rank_id: str
+    rank_index: int
+    status: RankStatus | None = None
+
+
+class RankRealizedPayload(_PayloadBase):
+    plan_id: str
+    rank_id: str
+    rank_index: int
+    estimated_throughput_tps: float | None = None
+    realized_throughput_tps: float
+    cumulative_realized_throughput_tps: float
 
 
 class JobGroupAssembledPayload(_PayloadBase):
-    job_id: str
     plan_id: str
     achieved_throughput_tps: float
-    target_throughput_tps: float
+    required_throughput_tps: float
     chain_ids: list[str]
-
-
-# --- Chain lifecycle -------------------------------------------------------
 
 
 class ChainAttemptStartedPayload(_PayloadBase):
     chain_id: str
     attempt_id: str
-    alternative_id: str
+    rank_id: str
     role: ChainRole
     target_node: str | None = None
 
@@ -178,18 +152,12 @@ class ChainCompletedPayload(_PayloadBase):
     metrics_json: dict[str, Any] = Field(default_factory=dict)
 
 
-# --- Ratio enforcement (§6) -----------------------------------------------
-
-
 class RatioViolatedPayload(_PayloadBase):
-    alternative_id: str
+    rank_id: str
     expected_pd_ratio: float
     realized_pd_ratio: float
     realized_prefill_chains: int
     realized_decode_chains: int
-
-
-# --- Outcomes --------------------------------------------------------------
 
 
 class OutcomeRecordedPayload(_PayloadBase):
@@ -199,42 +167,30 @@ class OutcomeRecordedPayload(_PayloadBase):
     reason_code: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-
 PAYLOAD_REGISTRY: dict[str, type[_PayloadBase]] = {
-    # Job lifecycle
     "job.submitted": JobSubmittedPayload,
     "job.completed": JobCompletedPayload,
     "job.failed": JobFailedPayload,
-    # Planning
-    "plan.requested": PlanRequestedPayload,
-    "plan.returned": PlanReturnedPayload,
-    # Placement traversal — all four alternative.* events share one shape
-    "placement.alternative_started": PlacementAlternativeEventPayload,
-    "placement.alternative_full": PlacementAlternativeEventPayload,
-    "placement.alternative_partial": PlacementAlternativeEventPayload,
-    "placement.alternative_abandoned": PlacementAlternativeEventPayload,
-    "placement.exhausted": PlacementExhaustedPayload,
+    "tick.started": TickStartedPayload,
+    "tick.completed": TickCompletedPayload,
+    "plan.created": PlanCreatedPayload,
+    "plan.throughput_met": PlanThroughputMetPayload,
+    "plan.exhausted": PlanExhaustedPayload,
+    "rank.started": RankEventPayload,
+    "rank.realized": RankRealizedPayload,
+    "rank.completed": RankEventPayload,
+    "rank.failed": RankEventPayload,
     "job_group.assembled": JobGroupAssembledPayload,
-    # Chain lifecycle
     "chain.attempt_started": ChainAttemptStartedPayload,
     "chain.failed": ChainFailedPayload,
     "chain.completed": ChainCompletedPayload,
-    # Ratio
     "ratio.violated": RatioViolatedPayload,
-    # Outcomes
     "outcome.recorded": OutcomeRecordedPayload,
 }
 
 
 def payload_model_for(event_type: str) -> type[_PayloadBase]:
-    """Return the Pydantic payload model for a given event type.
-
-    Raises ValueError if the type is not in the canonical registry.
-    """
+    """Return the Pydantic payload model for a given event type."""
     if event_type not in PAYLOAD_REGISTRY:
         raise ValueError(
             f"Unknown event type: {event_type!r}. Canonical types are: {sorted(PAYLOAD_REGISTRY)}"
@@ -243,10 +199,7 @@ def payload_model_for(event_type: str) -> type[_PayloadBase]:
 
 
 def validate_payload(event_type: str, payload: dict[str, Any]) -> _PayloadBase:
-    """Validate a raw payload dict against its registered model.
-
-    Returns the parsed model; raises ValidationError on shape mismatch.
-    """
+    """Validate a raw payload dict against its registered model."""
     return payload_model_for(event_type).model_validate(payload)
 
 
@@ -262,11 +215,14 @@ __all__ = [
     "JobSubmittedPayload",
     "OutcomeRecordedPayload",
     "PAYLOAD_REGISTRY",
-    "PlacementAlternativeEventPayload",
-    "PlacementExhaustedPayload",
-    "PlanRequestedPayload",
-    "PlanReturnedPayload",
+    "PlanCreatedPayload",
+    "PlanExhaustedPayload",
+    "PlanThroughputMetPayload",
+    "RankEventPayload",
+    "RankRealizedPayload",
     "RatioViolatedPayload",
+    "TickCompletedPayload",
+    "TickStartedPayload",
     "payload_model_for",
     "validate_payload",
 ]

@@ -103,6 +103,31 @@ class JobRow(Base):
 
 
 # ---------------------------------------------------------------------------
+# §5: koi_ticks
+# ---------------------------------------------------------------------------
+
+
+class KoiTickRow(Base):
+    __tablename__ = "koi_ticks"
+
+    tick_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    waiting_job_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    running_job_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_koi_ticks_user_started", "user_id", "started_at"),
+        Index("ix_koi_ticks_status", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # §5: plans
 # ---------------------------------------------------------------------------
 
@@ -111,31 +136,65 @@ class PlanRow(Base):
     __tablename__ = "plans"
 
     plan_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    job_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
+    tick_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("koi_ticks.tick_id", ondelete="CASCADE"), nullable=False
     )
     koi_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     plan_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     slo_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    required_throughput_tps: Mapped[float | None] = mapped_column(
+        Numeric(asdecimal=False), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_plans_job", "job_id"),)
+    __table_args__ = (
+        Index("ix_plans_tick", "tick_id"),
+        Index("ix_plans_status", "status"),
+    )
 
 
 # ---------------------------------------------------------------------------
-# §5 + §6: placement_alternatives
+# §5: plan_jobs
 # ---------------------------------------------------------------------------
 
 
-class PlacementAlternativeRow(Base):
-    __tablename__ = "placement_alternatives"
+class PlanJobRow(Base):
+    __tablename__ = "plan_jobs"
 
-    alternative_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    plan_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), primary_key=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), primary_key=True
+    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    required_throughput_tps: Mapped[float | None] = mapped_column(
+        Numeric(asdecimal=False), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    admitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_plan_jobs_job", "job_id"),
+        Index("ix_plan_jobs_status", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# §5 + §6: ranks
+# ---------------------------------------------------------------------------
+
+
+class RankRow(Base):
+    __tablename__ = "ranks"
+
+    rank_id: Mapped[str] = mapped_column(Text, primary_key=True)
     plan_id: Mapped[str] = mapped_column(
         Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False
     )
-    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    rank_index: Mapped[int] = mapped_column(Integer, nullable=False)
     strategy: Mapped[str] = mapped_column(String(32), nullable=False)
     # §5: pd_ratio NULL for aggregate; > 0 for pd_disaggregated.
     pd_ratio: Mapped[float | None] = mapped_column(Numeric(asdecimal=False), nullable=True)
@@ -143,10 +202,13 @@ class PlacementAlternativeRow(Base):
     estimated_throughput_tps: Mapped[float | None] = mapped_column(
         Numeric(asdecimal=False), nullable=True
     )
+    realized_throughput_tps: Mapped[float | None] = mapped_column(
+        Numeric(asdecimal=False), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    __table_args__ = (Index("ix_placement_alternatives_plan_rank", "plan_id", "rank"),)
+    __table_args__ = (Index("ix_ranks_plan_rank_index", "plan_id", "rank_index"),)
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +220,9 @@ class ChainRow(Base):
     __tablename__ = "chains"
 
     chain_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    alternative_id: Mapped[str] = mapped_column(
+    rank_id: Mapped[str] = mapped_column(
         Text,
-        ForeignKey("placement_alternatives.alternative_id", ondelete="CASCADE"),
+        ForeignKey("ranks.rank_id", ondelete="CASCADE"),
         nullable=False,
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -171,7 +233,7 @@ class ChainRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_chains_alternative_role", "alternative_id", "role"),
+        Index("ix_chains_rank_role", "rank_id", "role"),
         Index("ix_chains_status", "status"),
     )
 
@@ -285,8 +347,10 @@ ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
     ResourceMapRow,
     JobRow,
+    KoiTickRow,
     PlanRow,
-    PlacementAlternativeRow,
+    PlanJobRow,
+    RankRow,
     ChainRow,
     AttemptRow,
     OutcomeRow,

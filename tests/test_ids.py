@@ -20,7 +20,7 @@ def test_per_kind_helpers_use_registered_prefixes():
         (ids.new_resource_map_id(), "rmap_"),
         (ids.new_job_id(), "job_"),
         (ids.new_plan_id(), "plan_"),
-        (ids.new_placement_alternative_id(), "alt_"),
+        (ids.new_rank_id(), "rank_"),
         (ids.new_chain_id(), "chain_"),
         (ids.new_attempt_id(), "att_"),
         (ids.new_event_id(), "evt_"),
@@ -45,7 +45,7 @@ def test_ids_are_time_ordered():
 
 def test_kind_of_round_trip():
     assert ids.kind_of(ids.new_job_id()) == "job"
-    assert ids.kind_of(ids.new_placement_alternative_id()) == "placement_alternative"
+    assert ids.kind_of(ids.new_rank_id()) == "rank"
     assert ids.kind_of(ids.new_credentials_ref()) == "credentials"
 
 

@@ -1,4 +1,4 @@
-"""PlacementAlternative model — DATA_ARCHITECTURE.md §5 and §6.
+"""Rank model — DATA_ARCHITECTURE.md §5 and §6.
 
 Rules enforced here (from DATA_ARCHITECTURE.md):
 
@@ -23,15 +23,15 @@ from typing import Any
 
 from pydantic import Field, model_validator
 
-from tandemn_system_data.ids import new_placement_alternative_id
+from tandemn_system_data.ids import new_rank_id
 from tandemn_system_data.models._base import CanonicalModel, utc_now
-from tandemn_system_data.models.enums import AlternativeStatus, PlacementStrategy
+from tandemn_system_data.models.enums import PlacementStrategy, RankStatus
 
 
-class PlacementAlternative(CanonicalModel):
-    alternative_id: str = Field(default_factory=new_placement_alternative_id)
+class Rank(CanonicalModel):
+    rank_id: str = Field(default_factory=new_rank_id)
     plan_id: str
-    rank: int = Field(ge=0, description="0 = first to try; higher = fallback order")
+    rank_index: int = Field(ge=0, description="0 = first to deploy; higher = later capacity rank")
     strategy: PlacementStrategy
     pd_ratio: float | None = Field(
         default=None,
@@ -40,11 +40,12 @@ class PlacementAlternative(CanonicalModel):
     )
     sizing_json: dict[str, Any] = Field(default_factory=dict)
     estimated_throughput_tps: float | None = Field(default=None, ge=0)
-    status: AlternativeStatus = AlternativeStatus.PENDING
+    realized_throughput_tps: float | None = Field(default=None, ge=0)
+    status: RankStatus = RankStatus.PENDING
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
-    def _enforce_pd_ratio_rules(self) -> PlacementAlternative:
+    def _enforce_pd_ratio_rules(self) -> Rank:
         if self.strategy is PlacementStrategy.PD_DISAGGREGATED:
             if self.pd_ratio is None:
                 raise ValueError("pd_ratio is required when strategy='pd_disaggregated'")

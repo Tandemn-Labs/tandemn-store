@@ -34,20 +34,17 @@ class JobStatus(StrEnum):
 
 
 class PlacementStrategy(StrEnum):
-    """Top-level placement strategy for a placement_alternative."""
+    """Top-level placement strategy for a rank."""
 
     PD_DISAGGREGATED = "pd_disaggregated"
     AGGREGATE = "aggregate"
 
 
-class AlternativeStatus(StrEnum):
-    """Status of a placement_alternative as the executor traverses it.
+class RankStatus(StrEnum):
+    """Status of a rank as the executor traverses it.
 
-    Mirrors the event names in §9:
-      placement.alternative_started   -> STARTED
-      placement.alternative_full      -> FULL
-      placement.alternative_partial   -> PARTIAL
-      placement.alternative_abandoned -> ABANDONED
+    Used by rank.started / rank.completed / rank.failed / rank.realized
+    event payloads and by the ranks table.
     """
 
     PENDING = "pending"

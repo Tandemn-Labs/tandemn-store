@@ -21,9 +21,11 @@ from tandemn_system_data.db import (
     CredentialsRow,
     EventRow,
     JobRow,
+    KoiTickRow,
     OutcomeRow,
-    PlacementAlternativeRow,
+    PlanJobRow,
     PlanRow,
+    RankRow,
     ResourceMapRow,
     UserRow,
 )
@@ -33,9 +35,10 @@ from tandemn_system_data.ids import (
     new_credentials_ref,
     new_event_id,
     new_job_id,
+    new_koi_tick_id,
     new_outcome_id,
-    new_placement_alternative_id,
     new_plan_id,
+    new_rank_id,
     new_resource_map_id,
     new_user_id,
 )
@@ -91,7 +94,7 @@ def test_all_tables_created(pg_client: PostgresClient):
 
 
 def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
-    """Insert user \u2192 job \u2192 plan \u2192 plan \u2192 alt \u2192 chain \u2192
+    """Insert user → job → tick → plan → plan_job → rank → chain →
     attempt \u2192 outcome \u2192 event \u2192 credentials, then read them back.
 
     Anchored to DATA_ARCHITECTURE.md \u00a74.
@@ -101,8 +104,9 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
     user_id = new_user_id()
     resource_map_id = new_resource_map_id()
     job_id = new_job_id()
+    tick_id = new_koi_tick_id()
     plan_id = new_plan_id()
-    alt_id = new_placement_alternative_id()
+    rank_id = new_rank_id()
     chain_id = new_chain_id()
     attempt_id = new_attempt_id()
     outcome_id = new_outcome_id()
@@ -133,23 +137,49 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 created_at=now,
             )
         )
+        s.flush()
         s.add(
-            PlanRow(
-                plan_id=plan_id,
-                job_id=job_id,
-                koi_version="koi-0.1",
-                rationale_json={"why": "demo"},
-                plan_json={"alternatives": []},
-                slo_json={"target_throughput_tps": 1500},
-                created_at=now,
+            KoiTickRow(
+                tick_id=tick_id,
+                user_id=user_id,
+                started_at=now,
+                completed_at=None,
+                status="started",
+                waiting_job_count=1,
+                running_job_count=0,
+                metadata_json={},
             )
         )
         s.flush()
         s.add(
-            PlacementAlternativeRow(
-                alternative_id=alt_id,
+            PlanRow(
                 plan_id=plan_id,
-                rank=0,
+                tick_id=tick_id,
+                koi_version="koi-0.1",
+                rationale_json={"why": "demo"},
+                plan_json={"ranks": []},
+                slo_json={"target_throughput_tps": 1500},
+                required_throughput_tps=1500,
+                status="created",
+                created_at=now,
+            )
+        )
+        s.add(
+            PlanJobRow(
+                plan_id=plan_id,
+                job_id=job_id,
+                priority=0,
+                required_throughput_tps=1500,
+                status="admitted",
+                admitted_at=now,
+            )
+        )
+        s.flush()
+        s.add(
+            RankRow(
+                rank_id=rank_id,
+                plan_id=plan_id,
+                rank_index=0,
                 strategy="pd_disaggregated",
                 pd_ratio=2.0,
                 sizing_json={
@@ -161,6 +191,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                     },
                 },
                 estimated_throughput_tps=1500,
+                realized_throughput_tps=None,
                 status="started",
                 created_at=now,
             )
@@ -169,7 +200,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         s.add(
             ChainRow(
                 chain_id=chain_id,
-                alternative_id=alt_id,
+                rank_id=rank_id,
                 role="decode",
                 shape_json={"hw": "A100", "tp": 1, "pp": 1},
                 parallelism_json={"tp": 1, "pp": 1},
@@ -232,9 +263,9 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         assert j.input_source["uri"].startswith("s3://")
 
         d = s.get(PlanRow, plan_id)
-        assert d is not None and d.job_id == job_id and d.plan_id == plan_id
+        assert d is not None and d.tick_id == tick_id and d.plan_id == plan_id
 
-        alt = s.get(PlacementAlternativeRow, alt_id)
+        alt = s.get(RankRow, rank_id)
         assert alt is not None
         assert alt.strategy == "pd_disaggregated"
         assert float(alt.pd_ratio) == 2.0
@@ -256,7 +287,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
 
         cred = s.get(CredentialsRow, cred_ref)
         assert cred is not None and cred.expires_at > now
-        assert d.plan_json == {"alternatives": []}
+        assert d.plan_json == {"ranks": []}
         assert d.slo_json["target_throughput_tps"] == 1500
 
 
@@ -267,8 +298,9 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
     now = datetime.now(UTC)
     user_id = new_user_id()
     job_id = new_job_id()
+    tick_id = new_koi_tick_id()
     plan_id = new_plan_id()
-    alt_id = new_placement_alternative_id()
+    rank_id = new_rank_id()
 
     with pg_client.begin() as s:
         s.add(UserRow(user_id=user_id, name="aggregate-test", created_at=now))
@@ -287,21 +319,44 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
         )
         s.flush()
         s.add(
-            PlanRow(
-                plan_id=plan_id,
-                job_id=job_id,
-                plan_json={},
-                slo_json={},
-                rationale_json={},
-                created_at=now,
+            KoiTickRow(
+                tick_id=tick_id,
+                user_id=user_id,
+                started_at=now,
+                completed_at=None,
+                status="started",
+                waiting_job_count=1,
+                running_job_count=0,
+                metadata_json={},
             )
         )
         s.flush()
         s.add(
-            PlacementAlternativeRow(
-                alternative_id=alt_id,
+            PlanRow(
                 plan_id=plan_id,
-                rank=0,
+                tick_id=tick_id,
+                plan_json={},
+                slo_json={},
+                rationale_json={},
+                status="created",
+                created_at=now,
+            )
+        )
+        s.add(
+            PlanJobRow(
+                plan_id=plan_id,
+                job_id=job_id,
+                priority=0,
+                status="admitted",
+                admitted_at=now,
+            )
+        )
+        s.flush()
+        s.add(
+            RankRow(
+                rank_id=rank_id,
+                plan_id=plan_id,
+                rank_index=0,
                 strategy="aggregate",
                 pd_ratio=None,
                 sizing_json={
@@ -312,13 +367,14 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
                     }
                 },
                 estimated_throughput_tps=1600,
+                realized_throughput_tps=None,
                 status="pending",
                 created_at=now,
             )
         )
 
     with pg_client.session() as s:
-        alt = s.get(PlacementAlternativeRow, alt_id)
+        alt = s.get(RankRow, rank_id)
         assert alt is not None
         assert alt.pd_ratio is None
         assert alt.sizing_json["aggregate"]["target_chains"] == 8

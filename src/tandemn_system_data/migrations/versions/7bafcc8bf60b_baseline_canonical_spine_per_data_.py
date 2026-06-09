@@ -109,55 +109,88 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "koi_ticks",
+        sa.Column("tick_id", sa.Text(), nullable=False),
+        sa.Column("user_id", sa.Text(), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("waiting_job_count", sa.Integer(), nullable=False),
+        sa.Column("running_job_count", sa.Integer(), nullable=False),
+        sa.Column("metadata_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("tick_id"),
+    )
+    op.create_index("ix_koi_ticks_status", "koi_ticks", ["status"])
+    op.create_index("ix_koi_ticks_user_started", "koi_ticks", ["user_id", "started_at"])
+
+    op.create_table(
         "plans",
         sa.Column("plan_id", sa.Text(), nullable=False),
-        sa.Column("job_id", sa.Text(), nullable=False),
+        sa.Column("tick_id", sa.Text(), nullable=False),
         sa.Column("koi_version", sa.String(length=64), nullable=True),
         sa.Column("rationale_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("plan_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("slo_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("required_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
+        sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["job_id"], ["jobs.job_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["tick_id"], ["koi_ticks.tick_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("plan_id"),
     )
-    op.create_index("ix_plans_job", "plans", ["job_id"])
+    op.create_index("ix_plans_status", "plans", ["status"])
+    op.create_index("ix_plans_tick", "plans", ["tick_id"])
 
     op.create_table(
-        "placement_alternatives",
-        sa.Column("alternative_id", sa.Text(), nullable=False),
+        "plan_jobs",
         sa.Column("plan_id", sa.Text(), nullable=False),
-        sa.Column("rank", sa.Integer(), nullable=False),
+        sa.Column("job_id", sa.Text(), nullable=False),
+        sa.Column("priority", sa.Integer(), nullable=False),
+        sa.Column("required_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
+        sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("admitted_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["job_id"], ["jobs.job_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["plan_id"], ["plans.plan_id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("plan_id", "job_id"),
+    )
+    op.create_index("ix_plan_jobs_job", "plan_jobs", ["job_id"])
+    op.create_index("ix_plan_jobs_status", "plan_jobs", ["status"])
+
+    op.create_table(
+        "ranks",
+        sa.Column("rank_id", sa.Text(), nullable=False),
+        sa.Column("plan_id", sa.Text(), nullable=False),
+        sa.Column("rank_index", sa.Integer(), nullable=False),
         sa.Column("strategy", sa.String(length=32), nullable=False),
         sa.Column("pd_ratio", sa.Numeric(asdecimal=False), nullable=True),
         sa.Column("sizing_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("estimated_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
+        sa.Column("realized_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["plan_id"], ["plans.plan_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("alternative_id"),
+        sa.PrimaryKeyConstraint("rank_id"),
     )
     op.create_index(
-        "ix_placement_alternatives_plan_rank",
-        "placement_alternatives",
-        ["plan_id", "rank"],
+        "ix_ranks_plan_rank_index",
+        "ranks",
+        ["plan_id", "rank_index"],
     )
 
     op.create_table(
         "chains",
         sa.Column("chain_id", sa.Text(), nullable=False),
-        sa.Column("alternative_id", sa.Text(), nullable=False),
+        sa.Column("rank_id", sa.Text(), nullable=False),
         sa.Column("role", sa.String(length=16), nullable=False),
         sa.Column("shape_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("parallelism_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("target_node", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["alternative_id"], ["placement_alternatives.alternative_id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["rank_id"], ["ranks.rank_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("chain_id"),
     )
-    op.create_index("ix_chains_alternative_role", "chains", ["alternative_id", "role"])
+    op.create_index("ix_chains_rank_role", "chains", ["rank_id", "role"])
     op.create_index("ix_chains_status", "chains", ["status"])
 
     op.create_table(
@@ -193,12 +226,19 @@ def downgrade() -> None:
     op.drop_index("ix_attempts_chain", table_name="attempts")
     op.drop_table("attempts")
     op.drop_index("ix_chains_status", table_name="chains")
-    op.drop_index("ix_chains_alternative_role", table_name="chains")
+    op.drop_index("ix_chains_rank_role", table_name="chains")
     op.drop_table("chains")
-    op.drop_index("ix_placement_alternatives_plan_rank", table_name="placement_alternatives")
-    op.drop_table("placement_alternatives")
-    op.drop_index("ix_plans_job", table_name="plans")
+    op.drop_index("ix_ranks_plan_rank_index", table_name="ranks")
+    op.drop_table("ranks")
+    op.drop_index("ix_plan_jobs_status", table_name="plan_jobs")
+    op.drop_index("ix_plan_jobs_job", table_name="plan_jobs")
+    op.drop_table("plan_jobs")
+    op.drop_index("ix_plans_tick", table_name="plans")
+    op.drop_index("ix_plans_status", table_name="plans")
     op.drop_table("plans")
+    op.drop_index("ix_koi_ticks_user_started", table_name="koi_ticks")
+    op.drop_index("ix_koi_ticks_status", table_name="koi_ticks")
+    op.drop_table("koi_ticks")
     op.drop_index("ix_resource_maps_user_captured", table_name="resource_maps")
     op.drop_index(
         "ix_resource_maps_snapshot_gin",
