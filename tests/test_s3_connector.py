@@ -65,6 +65,21 @@ def _put_jsonl(bucket: str, key: str, records: list[dict]) -> None:
     _raw_client().put_object(Bucket=bucket, Key=key, Body=body)
 
 
+def _openai_row(input_id: str, prompt: str) -> dict:
+    return {
+        "custom_id": input_id,
+        "method": "POST",
+        "url": "/v1/chat/completions",
+        "body": {
+            "model": "Qwen/Qwen3-0.6B",
+            "messages": [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": prompt},
+            ],
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # index()
 # ---------------------------------------------------------------------------
@@ -76,15 +91,7 @@ def test_index_prefix_emits_one_payload_ref_per_object(bucket: str):
         _put_jsonl(
             bucket,
             f"inputs/part-{i:03d}.jsonl",
-            [
-                {
-                    "input_id": f"in_{i}_{j}",
-                    "user_id": "usr_1",
-                    "job_id": "job_1",
-                    "prompt": f"prompt {i}.{j}",
-                }
-                for j in range(2)
-            ],
+            [_openai_row(f"in_{i}_{j}", f"prompt {i}.{j}") for j in range(2)],
         )
 
     conn = S3Connector()
@@ -105,7 +112,7 @@ def test_index_single_object_emits_one_ref(bucket: str):
     _put_jsonl(
         bucket,
         "inputs/single.jsonl",
-        [{"input_id": "i", "user_id": "t", "job_id": "j", "prompt": "p"}],
+        [_openai_row("i", "p")],
     )
     conn = S3Connector()
     refs = list(
@@ -127,16 +134,7 @@ def test_read_returns_normalized_records(bucket: str):
     _put_jsonl(
         bucket,
         "inputs/x.jsonl",
-        [
-            {
-                "input_id": f"in_{i}",
-                "user_id": "usr_1",
-                "job_id": "job_1",
-                "prompt": f"prompt {i}",
-                "metadata": {"i": i},
-            }
-            for i in range(4)
-        ],
+        [_openai_row(f"in_{i}", f"prompt {i}") for i in range(4)],
     )
 
     conn = S3Connector()
@@ -148,7 +146,7 @@ def test_read_returns_normalized_records(bucket: str):
     )
     records = list(conn.read(refs[0], creds=_creds()))
     assert [r.input_id for r in records] == [f"in_{i}" for i in range(4)]
-    assert records[0].metadata == {"i": 0}
+    assert records[0].metadata["openai_batch"]["body"]["model"] == "Qwen/Qwen3-0.6B"
 
 
 def test_read_rejects_wrong_type():
@@ -210,15 +208,7 @@ def test_round_trip_index_read_write_read(bucket: str):
     index outputs, read outputs."""
     conn = S3Connector()
     # Seed
-    in_records = [
-        {
-            "input_id": f"in_{i}",
-            "user_id": "usr_1",
-            "job_id": "job_1",
-            "prompt": f"prompt {i}",
-        }
-        for i in range(5)
-    ]
+    in_records = [_openai_row(f"in_{i}", f"prompt {i}") for i in range(5)]
     _put_jsonl(bucket, "inputs/x.jsonl", in_records)
 
     # Index + read inputs

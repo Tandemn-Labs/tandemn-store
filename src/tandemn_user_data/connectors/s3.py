@@ -41,6 +41,7 @@ from urllib.parse import urlparse
 import boto3
 from botocore.client import Config
 
+from tandemn_user_data.connectors.jsonl import record_from_jsonl_row
 from tandemn_user_data.core.record import NormalizedRecord, OutputRef, PayloadRef
 
 # ---------------------------------------------------------------------------
@@ -174,13 +175,7 @@ class S3Connector:
             if not raw.strip():
                 continue
             row = json.loads(raw)
-            yield NormalizedRecord(
-                input_id=str(row.get("input_id") or row.get("id") or ""),
-                user_id=str(row.get("user_id") or ""),
-                job_id=str(row.get("job_id") or ""),
-                prompt=row.get("prompt", ""),
-                metadata=row.get("metadata", {}) or {},
-            )
+            yield record_from_jsonl_row(row)
 
     # ----- output ---------------------------------------------------------
 

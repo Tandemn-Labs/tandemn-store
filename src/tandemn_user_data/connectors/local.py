@@ -31,6 +31,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+from tandemn_user_data.connectors.jsonl import record_from_jsonl_row
 from tandemn_user_data.core.record import NormalizedRecord, OutputRef, PayloadRef
 
 DEFAULT_CHUNK_SIZE_LINES = 1000
@@ -107,13 +108,7 @@ class LocalFileConnector:
             if not raw.strip():
                 continue
             row = json.loads(raw)
-            yield NormalizedRecord(
-                input_id=str(row.get("input_id") or row.get("id") or ""),
-                user_id=str(row.get("user_id") or ""),
-                job_id=str(row.get("job_id") or ""),
-                prompt=row.get("prompt", ""),
-                metadata=row.get("metadata", {}) or {},
-            )
+            yield record_from_jsonl_row(row)
 
     # ----- output ---------------------------------------------------------
 

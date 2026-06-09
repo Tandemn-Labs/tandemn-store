@@ -24,11 +24,16 @@ def input_jsonl(tmp_path: Path) -> Path:
             f.write(
                 json.dumps(
                     {
-                        "input_id": f"in_{i}",
-                        "user_id": "usr_1",
-                        "job_id": "job_1",
-                        "prompt": f"prompt {i}",
-                        "metadata": {"i": i},
+                        "custom_id": f"in_{i}",
+                        "method": "POST",
+                        "url": "/v1/chat/completions",
+                        "body": {
+                            "model": "Qwen/Qwen3-0.6B",
+                            "messages": [
+                                {"role": "system", "content": "You are helpful."},
+                                {"role": "user", "content": f"prompt {i}"},
+                            ],
+                        },
                     }
                 )
             )
@@ -98,6 +103,7 @@ def test_read_returns_normalized_records(input_jsonl: Path):
     assert all(isinstance(r, NormalizedRecord) for r in first_chunk)
     assert first_chunk[0].input_id == "in_0"
     assert first_chunk[0].prompt == "prompt 0"
+    assert first_chunk[0].metadata["openai_batch"]["body"]["model"] == "Qwen/Qwen3-0.6B"
     assert first_chunk[-1].input_id == "in_9"
 
 
