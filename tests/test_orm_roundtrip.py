@@ -164,6 +164,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 created_at=now,
             )
         )
+        s.flush()
         s.add(
             PlanJobRow(
                 plan_id=plan_id,
@@ -342,6 +343,7 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
                 created_at=now,
             )
         )
+        s.flush()
         s.add(
             PlanJobRow(
                 plan_id=plan_id,
