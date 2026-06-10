@@ -19,9 +19,6 @@ dependencies = [
     # Postgres driver for SQLAlchemy.
     "psycopg[binary]>=3.2",
 
-    # Redis chunk queue (hot worker queue; not event delivery)
-    "redis>=5.0",
-
     # S3 / MinIO
     "boto3>=1.34",
     "botocore>=1.34",
@@ -69,5 +66,5 @@ ignore = ["E501"]  # line length handled by formatter
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 markers = [
-    "integration: requires docker-compose stack (Postgres + Redis + MinIO) to be running",
+    "integration: requires docker-compose stack (Postgres + MinIO) to be running",
 ]

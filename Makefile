@@ -3,7 +3,7 @@
 
 help:
 	@echo "tandemn-store dev targets:"
-	@echo "  make up                  start Postgres + Redis + MinIO via docker-compose"
+	@echo "  make up                  start Postgres + MinIO via docker-compose"
 	@echo "  make down                stop the stack"
 	@echo "  make logs                follow stack logs"
 	@echo "  make ps                  show stack status"
