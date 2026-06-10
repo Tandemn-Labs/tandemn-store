@@ -7,7 +7,7 @@ Ships two packages:
 - **`tandemn_system_data`** — canonical state (Postgres spine, Postgres event log, Tandemn-owned S3 blobs, credentials store/server). Imported by **Orca and Koi only**.
 - **`tandemn_user_data`** — user payloads in motion (connectors, credential resolver, `PayloadRef` / `OutputRef` / `NormalizedRecord`). Imported by **Orca, workers, and CLI**.
 
-The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
+The architecture and rationale live in [`DATA_ARCHITECTURE.md`](./DATA_ARCHITECTURE.md).
 
 ---
 

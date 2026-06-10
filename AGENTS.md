@@ -9,7 +9,7 @@ This file is for coding agents working in `tandemn-store`. Keep it lean: this re
   - `tandemn_system_data`: control-plane state for Orca and Koi (Postgres spine, Alembic, Postgres event log, internal blobs, credentials store/server).
   - `tandemn_user_data`: data-plane payload movement for Orca, workers, and CLI (PayloadRef, OutputRef, NormalizedRecord, connectors, worker fetch/write path).
 - Keep the package boundary strict: `tandemn_user_data` must never import `tandemn_system_data`. CI enforces this with `import-linter`.
-- The source-of-truth architecture is in `../tandemn-system/DATA_ARCHITECTURE.md`; update it when changing the contract.
+- The source-of-truth architecture is in `DATA_ARCHITECTURE.md` at the repo root; update it when changing the contract.
 
 ## Code Style
 
