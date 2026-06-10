@@ -82,12 +82,13 @@ Each substrate has one job and is chosen for what it's good at.
 |--------------------|-------------------------------------------------|------------|
 | Postgres           | Canonical spine. All entity rows, audit log.    | CP         |
 | Postgres events    | Durable event log and consumer cursors.         | CP         |
-| Redis KV           | Optional hot chunk queue for distributed workers. | AP      |
+| Redis KV           | Deferred (Phase 2): hot chunk queue for distributed workers. | AP      |
 | S3 / MinIO         | Blobs: Tandemn-owned artifacts; staging.        | AP + strong RAW |
 | User data systems  | Source/sink for inference inputs and outputs.   | n/a (theirs)|
 
-The mental model: **truth and events live in Postgres; hot chunk queues may
-live in Redis; bytes live in S3 or in the user's lake.**
+The mental model: **truth and events live in Postgres; bytes live in S3
+or in the user's lake; hot chunk queues may live in Redis when Phase 2
+needs them.**
 
 ---
 
@@ -300,7 +301,9 @@ not to count toward the SLO sum.
 
 ## 7. User Data Path
 
-User data never transits Orca during execution.
+User data never transits Orca during execution. (The Redis-backed chunk
+queue and /chunks endpoints below are Phase 2; in the MVP Orca hands
+chunk metadata to workers directly.)
 
 ```mermaid
 sequenceDiagram
@@ -381,11 +384,12 @@ Postgres is both the durable audit log and the MVP delivery mechanism.
 Redis Streams can be added later if event latency, fanout, or consumer
 group scaling requires it.
 
-### Work queue (Redis KV)
+### Work queue (Redis KV) — deferred to Phase 2
 
-The chunk queue stays Redis-backed, but workers do not talk to Redis
-directly. Workers call Orca's chunk HTTP API; Orca uses Redis internally
-for queue state. The queue holds metadata, not bytes.
+When the chunk queue lands it will be Redis-backed, but workers will not
+talk to Redis directly. Workers call Orca's chunk HTTP API; Orca uses
+Redis internally for queue state. The queue holds metadata, not bytes.
+Neither the queue nor the HTTP endpoints exist in the MVP.
 
 ### What replaces webhooks
 
