@@ -17,6 +17,8 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 - Canonical IDs (`ids.py`), Pydantic models, typed event payload registry (`events.py`)
 - SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5 + Alembic migrations
 - `PostgresClient`, `PostgresEventLog` (append events, read by cursor, `event_consumer_offsets`)
+- `JobStore` — Orca writes (submit, CAS status transitions), Koi reads (waiting/running jobs + active chains)
+- `ResourceMap` — wire contract only; the live map is an in-memory variable in Orca (single writer, versioned snapshots), not a table
 - `CredentialStore` + `/credentials/<ref>` FastAPI app behind a worker bearer token
 - `S3BlobClient` for Tandemn-owned blobs (never user data)
 

@@ -23,7 +23,7 @@ from tandemn_system_data.models.enums import (
 )
 from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.event_consumer_offset import EventConsumerOffset
-from tandemn_system_data.models.job import Job
+from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
 from tandemn_system_data.models.koi_tick import KoiTick
 from tandemn_system_data.models.outcome import Outcome
 from tandemn_system_data.models.plan import Plan
@@ -39,6 +39,8 @@ __all__ = [
     # Entities
     "Attempt",
     "Chain",
+    "ChainAllocation",
+    "RunningJob",
     "Credentials",
     "Plan",
     "Event",

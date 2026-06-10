@@ -11,6 +11,7 @@ from tandemn_system_data.clients.credentials_store import (
     CredentialStore,
 )
 from tandemn_system_data.clients.event_log import PostgresEventLog
+from tandemn_system_data.clients.jobs import JobStore
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.clients.s3_blob import S3BlobClient
 
@@ -19,6 +20,7 @@ __all__ = [
     "CredentialExpired",
     "CredentialNotFound",
     "CredentialStore",
+    "JobStore",
     "PostgresEventLog",
     "PostgresClient",
     "S3BlobClient",
