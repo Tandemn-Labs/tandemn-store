@@ -76,31 +76,6 @@ class JobRow(Base):
 
 
 # ---------------------------------------------------------------------------
-# §5: koi_ticks
-# ---------------------------------------------------------------------------
-
-
-class KoiTickRow(Base):
-    __tablename__ = "koi_ticks"
-
-    tick_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
-    )
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    waiting_job_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    running_job_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-
-    __table_args__ = (
-        Index("ix_koi_ticks_user_started", "user_id", "started_at"),
-        Index("ix_koi_ticks_status", "status"),
-    )
-
-
-# ---------------------------------------------------------------------------
 # §5: plans
 # ---------------------------------------------------------------------------
 
@@ -109,8 +84,8 @@ class PlanRow(Base):
     __tablename__ = "plans"
 
     plan_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    tick_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("koi_ticks.tick_id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     koi_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -123,7 +98,7 @@ class PlanRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_plans_tick", "tick_id"),
+        Index("ix_plans_user_created", "user_id", "created_at"),
         Index("ix_plans_status", "status"),
     )
 
@@ -319,7 +294,6 @@ class CredentialsRow(Base):
 ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
     JobRow,
-    KoiTickRow,
     PlanRow,
     PlanJobRow,
     RankRow,

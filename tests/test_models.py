@@ -22,7 +22,6 @@ from tandemn_system_data.models import (
     Job,
     JobKind,
     JobStatus,
-    KoiTick,
     Outcome,
     OutcomeStatus,
     PlacementStrategy,
@@ -98,20 +97,13 @@ def test_extras_forbidden():
 
 
 # ---------------------------------------------------------------------------
-# KoiTick / Plan / PlanJob (DATA_ARCHITECTURE.md §5)
+# Plan / PlanJob (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
-
-
-def test_koi_tick_defaults():
-    tick = KoiTick(user_id="usr_1", waiting_job_count=2, running_job_count=1)
-    assert tick.tick_id.startswith("tick_")
-    assert tick.status == "started"
-    assert tick.waiting_job_count == 2
 
 
 def test_plan_carries_rationale_and_executable_plan():
     d = Plan(
-        tick_id="tick_1",
+        user_id="usr_1",
         koi_version="koi-0.1",
         rationale_json={"why": "demo"},
         plan_json={"ranks": []},

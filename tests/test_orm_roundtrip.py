@@ -21,7 +21,6 @@ from tandemn_system_data.db import (
     CredentialsRow,
     EventRow,
     JobRow,
-    KoiTickRow,
     OutcomeRow,
     PlanJobRow,
     PlanRow,
@@ -34,7 +33,6 @@ from tandemn_system_data.ids import (
     new_credentials_ref,
     new_event_id,
     new_job_id,
-    new_koi_tick_id,
     new_outcome_id,
     new_plan_id,
     new_rank_id,
@@ -92,7 +90,7 @@ def test_all_tables_created(pg_client: PostgresClient):
 
 
 def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
-    """Insert user → job → tick → plan → plan_job → rank → chain →
+    """Insert user → job → plan → plan_job → rank → chain →
     attempt \u2192 outcome \u2192 event \u2192 credentials, then read them back.
 
     Anchored to DATA_ARCHITECTURE.md \u00a74.
@@ -101,7 +99,6 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
 
     user_id = new_user_id()
     job_id = new_job_id()
-    tick_id = new_koi_tick_id()
     plan_id = new_plan_id()
     rank_id = new_rank_id()
     chain_id = new_chain_id()
@@ -128,22 +125,9 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         )
         s.flush()
         s.add(
-            KoiTickRow(
-                tick_id=tick_id,
-                user_id=user_id,
-                started_at=now,
-                completed_at=None,
-                status="started",
-                waiting_job_count=1,
-                running_job_count=0,
-                metadata_json={},
-            )
-        )
-        s.flush()
-        s.add(
             PlanRow(
                 plan_id=plan_id,
-                tick_id=tick_id,
+                user_id=user_id,
                 koi_version="koi-0.1",
                 rationale_json={"why": "demo"},
                 plan_json={"ranks": []},
@@ -253,7 +237,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         assert j.input_source["uri"].startswith("s3://")
 
         d = s.get(PlanRow, plan_id)
-        assert d is not None and d.tick_id == tick_id and d.plan_id == plan_id
+        assert d is not None and d.user_id == user_id and d.plan_id == plan_id
 
         alt = s.get(RankRow, rank_id)
         assert alt is not None
@@ -288,7 +272,6 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
     now = datetime.now(UTC)
     user_id = new_user_id()
     job_id = new_job_id()
-    tick_id = new_koi_tick_id()
     plan_id = new_plan_id()
     rank_id = new_rank_id()
 
@@ -309,22 +292,9 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
         )
         s.flush()
         s.add(
-            KoiTickRow(
-                tick_id=tick_id,
-                user_id=user_id,
-                started_at=now,
-                completed_at=None,
-                status="started",
-                waiting_job_count=1,
-                running_job_count=0,
-                metadata_json={},
-            )
-        )
-        s.flush()
-        s.add(
             PlanRow(
                 plan_id=plan_id,
-                tick_id=tick_id,
+                user_id=user_id,
                 plan_json={},
                 slo_json={},
                 rationale_json={},

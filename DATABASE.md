@@ -17,9 +17,8 @@ beyond timestamps and statuses. JSONB columns are flagged with `(jsonb)`.
 erDiagram
     users ||--o{ jobs            : "owns"
     users ||--o{ credentials     : "owns"
-    users ||--o{ koi_ticks       : "schedules"
+    users ||--o{ plans           : "schedules"
 
-    koi_ticks ||--o{ plans       : "produces"
     plans ||--o{ plan_jobs       : "includes"
     jobs ||--o{ plan_jobs        : "admitted"
 
@@ -49,20 +48,9 @@ erDiagram
       TIMESTAMPTZ completed_at "nullable"
     }
 
-    koi_ticks {
-      TEXT tick_id PK
-      TEXT user_id FK
-      TIMESTAMPTZ started_at
-      TIMESTAMPTZ completed_at "nullable"
-      VARCHAR status
-      INT waiting_job_count
-      INT running_job_count
-      JSONB metadata_json
-    }
-
     plans {
       TEXT plan_id PK
-      TEXT tick_id FK
+      TEXT user_id FK
       VARCHAR koi_version "nullable"
       JSONB rationale_json
       JSONB plan_json
@@ -159,9 +147,8 @@ The same graph in text, useful for grep and for non-Mermaid renderers.
 ```
 users(user_id)               ← jobs.user_id                    CASCADE
 users(user_id)                   ← credentials.user_id             CASCADE
-users(user_id)                   ← koi_ticks.user_id               CASCADE
+users(user_id)                   ← plans.user_id                   CASCADE
 
-koi_ticks(tick_id)               ← plans.tick_id                   CASCADE
 plans(plan_id)                   ← plan_jobs.plan_id               CASCADE
 jobs(job_id)                     ← plan_jobs.job_id                CASCADE
 plans(plan_id)                   ← ranks.plan_id                   CASCADE
@@ -198,8 +185,7 @@ only after successful processing.
 Defined in `tandemn_system_data/db/orm.py`:
 
 - `jobs`: (user_id, created_at); (status)
-- `koi_ticks`: (user_id, started_at); (status)
-- `plans`: (tick_id); (status)
+- `plans`: (user_id, created_at); (status)
 - `plan_jobs`: (job_id); (status)
 - `ranks`: (plan_id, rank_index) — the natural order for deployment traversal
 - `chains`: (rank_id, role); (status)

@@ -89,6 +89,8 @@ def new_job_id() -> str:
 
 
 def new_koi_tick_id() -> str:
+    # Correlation ID only: ticks are events (tick.started / tick.completed),
+    # not entities. There is no koi_ticks table.
     return new_id("koi_tick")
 
 

@@ -92,7 +92,10 @@ class TickCompletedPayload(_PayloadBase):
 
 class PlanCreatedPayload(_PayloadBase):
     plan_id: str
-    tick_id: str
+    user_id: str
+    # Correlation to the tick.started/tick.completed events of the pass
+    # that produced this plan; ticks are not entities.
+    tick_id: str | None = None
     job_ids: list[str]
 
 

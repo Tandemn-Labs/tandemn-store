@@ -15,7 +15,6 @@ from tandemn_system_data.clients import JobStore, PostgresClient
 from tandemn_system_data.db import (
     Base,
     ChainRow,
-    KoiTickRow,
     PlanJobRow,
     PlanRow,
     RankRow,
@@ -23,7 +22,6 @@ from tandemn_system_data.db import (
 )
 from tandemn_system_data.ids import (
     new_chain_id,
-    new_koi_tick_id,
     new_plan_id,
     new_rank_id,
     new_user_id,
@@ -132,21 +130,10 @@ def test_running_jobs_include_launching_and_active_chains(
     store.transition(job_a.job_id, JobStatus.RUNNING, [JobStatus.SUBMITTED])
     store.transition(job_b.job_id, JobStatus.LAUNCHING, [JobStatus.SUBMITTED])
 
-    tick_id, plan_id, rank_id = new_koi_tick_id(), new_plan_id(), new_rank_id()
+    plan_id, rank_id = new_plan_id(), new_rank_id()
     running_chain, failed_chain = new_chain_id(), new_chain_id()
     with pg_client.begin() as s:
-        s.add(
-            KoiTickRow(
-                tick_id=tick_id,
-                user_id=user_id,
-                started_at=now,
-                status="completed",
-                waiting_job_count=0,
-                running_job_count=2,
-            )
-        )
-        s.flush()
-        s.add(PlanRow(plan_id=plan_id, tick_id=tick_id, status="executing", created_at=now))
+        s.add(PlanRow(plan_id=plan_id, user_id=user_id, status="executing", created_at=now))
         s.flush()
         for jid in (job_a.job_id, job_b.job_id):
             s.add(

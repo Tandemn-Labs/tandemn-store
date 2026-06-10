@@ -87,25 +87,9 @@ def upgrade() -> None:
     op.create_index("ix_jobs_user_created", "jobs", ["user_id", "created_at"])
 
     op.create_table(
-        "koi_ticks",
-        sa.Column("tick_id", sa.Text(), nullable=False),
-        sa.Column("user_id", sa.Text(), nullable=False),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("waiting_job_count", sa.Integer(), nullable=False),
-        sa.Column("running_job_count", sa.Integer(), nullable=False),
-        sa.Column("metadata_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("tick_id"),
-    )
-    op.create_index("ix_koi_ticks_status", "koi_ticks", ["status"])
-    op.create_index("ix_koi_ticks_user_started", "koi_ticks", ["user_id", "started_at"])
-
-    op.create_table(
         "plans",
         sa.Column("plan_id", sa.Text(), nullable=False),
-        sa.Column("tick_id", sa.Text(), nullable=False),
+        sa.Column("user_id", sa.Text(), nullable=False),
         sa.Column("koi_version", sa.String(length=64), nullable=True),
         sa.Column("rationale_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("plan_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -113,11 +97,11 @@ def upgrade() -> None:
         sa.Column("required_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["tick_id"], ["koi_ticks.tick_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("plan_id"),
     )
     op.create_index("ix_plans_status", "plans", ["status"])
-    op.create_index("ix_plans_tick", "plans", ["tick_id"])
+    op.create_index("ix_plans_user_created", "plans", ["user_id", "created_at"])
 
     op.create_table(
         "plan_jobs",
@@ -211,12 +195,9 @@ def downgrade() -> None:
     op.drop_index("ix_plan_jobs_status", table_name="plan_jobs")
     op.drop_index("ix_plan_jobs_job", table_name="plan_jobs")
     op.drop_table("plan_jobs")
-    op.drop_index("ix_plans_tick", table_name="plans")
+    op.drop_index("ix_plans_user_created", table_name="plans")
     op.drop_index("ix_plans_status", table_name="plans")
     op.drop_table("plans")
-    op.drop_index("ix_koi_ticks_user_started", table_name="koi_ticks")
-    op.drop_index("ix_koi_ticks_status", table_name="koi_ticks")
-    op.drop_table("koi_ticks")
     op.drop_index("ix_jobs_user_created", table_name="jobs")
     op.drop_index("ix_jobs_status", table_name="jobs")
     op.drop_table("jobs")

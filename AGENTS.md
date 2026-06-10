@@ -22,9 +22,9 @@ This file is for coding agents working in `tandemn-store`. Keep it lean: this re
 
 - Pydantic models, SQLAlchemy ORM, Alembic migrations, `DATABASE.md`, and `DATA_ARCHITECTURE.md` must stay in sync.
 - Any ORM schema change requires an Alembic migration and an `alembic check` pass.
-- The current canonical hierarchy is: `user -> koi_tick -> plan -> rank -> chain -> attempt/outcome/event`, with `plan_jobs` joining plans to jobs.
+- The current canonical hierarchy is: `user -> plan -> rank -> chain -> attempt/outcome/event`, with `plan_jobs` joining plans to jobs. Koi ticks are events (`tick.started`/`tick.completed`), not a table; do not re-add `koi_ticks`.
 - The resource map is NOT a Postgres table. It is Orca's in-memory state; this repo ships only the `ResourceMap` wire contract. Do not re-add a `resource_maps` table.
-- `plans` are multi-job Koi scheduler plans produced by ticks. They contain rationale (`rationale_json`, `koi_version`), executable placement (`plan_json`, `slo_json`), and required throughput. Do not reintroduce a separate `decisions` table unless explicitly requested.
+- `plans` are multi-job Koi scheduler plans. They contain rationale (`rationale_json`, `koi_version`), executable placement (`plan_json`, `slo_json`), and required throughput. Do not reintroduce a separate `decisions` table unless explicitly requested.
 - Use Postgres JSONB for schemaless-but-attached state (`plan_json`, `sizing_json`, `metrics_json`, `input_source`, `output_target`). Do not add Mongo/Dynamo just for hierarchical blobs.
 
 ## Control Plane / Data Plane Boundary

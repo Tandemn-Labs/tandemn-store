@@ -24,7 +24,6 @@ from tandemn_system_data.models.enums import (
 from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.event_consumer_offset import EventConsumerOffset
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
-from tandemn_system_data.models.koi_tick import KoiTick
 from tandemn_system_data.models.outcome import Outcome
 from tandemn_system_data.models.plan import Plan
 from tandemn_system_data.models.plan_job import PlanJob
@@ -46,7 +45,6 @@ __all__ = [
     "Event",
     "EventConsumerOffset",
     "Job",
-    "KoiTick",
     "Outcome",
     "Rank",
     "ResourceMap",

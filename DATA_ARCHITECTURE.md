@@ -97,15 +97,17 @@ needs them.**
 ```
 user_id
   └── job_id
-
-koi_tick_id              (Koi's periodic scheduling cycle)
-  └── plan_id            (multi-job scheduler plan)
+  └── plan_id            (multi-job scheduler plan, produced by a Koi pass)
         └── plan_job     (jobs admitted into this plan)
         └── rank_id      (ordered deployable capacity unit)
               └── chain_id             (role: prefill | decode | aggregate)
                     └── attempt_id
                           └── event_id
 ```
+
+A Koi scheduler pass ("tick") is **not an entity**: tick.started /
+tick.completed events record that Koi ran, and what it saw lives in the
+plan's `rationale_json`.
 
 A `job_group` is the **derived** union of running chains across ranks whose
 cumulative decode-side throughput meets the plan's required throughput. Never
@@ -119,8 +121,7 @@ stored; always queried.
 erDiagram
     users ||--o{ jobs : has
     users ||--o{ credentials : owns
-    users ||--o{ koi_ticks : schedules
-    koi_ticks ||--o{ plans : produces
+    users ||--o{ plans : schedules
     plans ||--o{ plan_jobs : includes
     jobs ||--o{ plan_jobs : admitted
     plans ||--o{ ranks : contains
@@ -145,19 +146,9 @@ erDiagram
       jsonb output_target
       text status
     }
-    koi_ticks {
-      text tick_id PK
-      text user_id FK
-      timestamptz started_at
-      timestamptz completed_at
-      text status
-      int waiting_job_count
-      int running_job_count
-      jsonb metadata_json
-    }
     plans {
       text plan_id PK
-      text tick_id FK
+      text user_id FK
       text koi_version
       jsonb rationale_json
       jsonb plan_json
@@ -230,10 +221,11 @@ Key column notes:
 
 - `jobs.input_source` and `jobs.output_target` are JSONB. They describe
   *where* user data lives, never the data itself.
-- A `koi_tick` records one scheduler pass over waiting/running jobs and past
-  outcomes. Koi runs this roughly every 100 seconds.
-- A `plan` is a multi-job scheduler plan produced by a Koi tick. It contains
-  Koi's rationale and executable rank structure (`plan_json` + `slo_json`).
+- A `plan` is a multi-job scheduler plan produced by one Koi pass
+  (roughly every 100 seconds). It contains Koi's rationale and executable
+  rank structure (`plan_json` + `slo_json`). The pass itself is recorded
+  as tick.started / tick.completed events, not a table; what Koi saw
+  (job counts, resource map version) goes in `rationale_json`.
 - `plan_jobs` is the join table that records which jobs were admitted into a
   plan and what throughput/priority each contributed.
 - `ranks.pd_ratio` is `prefill_per_decode`
