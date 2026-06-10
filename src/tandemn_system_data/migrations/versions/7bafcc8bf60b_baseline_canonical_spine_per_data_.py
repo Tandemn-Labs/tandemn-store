@@ -87,28 +87,6 @@ def upgrade() -> None:
     op.create_index("ix_jobs_user_created", "jobs", ["user_id", "created_at"])
 
     op.create_table(
-        "resource_maps",
-        sa.Column("resource_map_id", sa.Text(), nullable=False),
-        sa.Column("user_id", sa.Text(), nullable=False),
-        sa.Column("snapshot_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("resource_map_id"),
-    )
-    op.create_index(
-        "ix_resource_maps_snapshot_gin",
-        "resource_maps",
-        ["snapshot_json"],
-        postgresql_using="gin",
-        postgresql_ops={"snapshot_json": "jsonb_path_ops"},
-    )
-    op.create_index(
-        "ix_resource_maps_user_captured",
-        "resource_maps",
-        ["user_id", "captured_at"],
-    )
-
-    op.create_table(
         "koi_ticks",
         sa.Column("tick_id", sa.Text(), nullable=False),
         sa.Column("user_id", sa.Text(), nullable=False),
@@ -239,14 +217,6 @@ def downgrade() -> None:
     op.drop_index("ix_koi_ticks_user_started", table_name="koi_ticks")
     op.drop_index("ix_koi_ticks_status", table_name="koi_ticks")
     op.drop_table("koi_ticks")
-    op.drop_index("ix_resource_maps_user_captured", table_name="resource_maps")
-    op.drop_index(
-        "ix_resource_maps_snapshot_gin",
-        table_name="resource_maps",
-        postgresql_using="gin",
-        postgresql_ops={"snapshot_json": "jsonb_path_ops"},
-    )
-    op.drop_table("resource_maps")
     op.drop_index("ix_jobs_user_created", table_name="jobs")
     op.drop_index("ix_jobs_status", table_name="jobs")
     op.drop_table("jobs")

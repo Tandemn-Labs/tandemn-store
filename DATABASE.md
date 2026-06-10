@@ -16,7 +16,6 @@ beyond timestamps and statuses. JSONB columns are flagged with `(jsonb)`.
 ```mermaid
 erDiagram
     users ||--o{ jobs            : "owns"
-    users ||--o{ resource_maps   : "snapshots"
     users ||--o{ credentials     : "owns"
     users ||--o{ koi_ticks       : "schedules"
 
@@ -36,13 +35,6 @@ erDiagram
       TEXT user_id PK
       TEXT name
       TIMESTAMPTZ created_at
-    }
-
-    resource_maps {
-      TEXT resource_map_id PK
-      TEXT user_id FK
-      JSONB snapshot_json
-      TIMESTAMPTZ captured_at
     }
 
     jobs {
@@ -165,7 +157,6 @@ erDiagram
 The same graph in text, useful for grep and for non-Mermaid renderers.
 
 ```
-users(user_id)               ← resource_maps.user_id           CASCADE
 users(user_id)               ← jobs.user_id                    CASCADE
 users(user_id)                   ← credentials.user_id             CASCADE
 users(user_id)                   ← koi_ticks.user_id               CASCADE
@@ -206,7 +197,6 @@ only after successful processing.
 
 Defined in `tandemn_system_data/db/orm.py`:
 
-- `resource_maps`: GIN(`snapshot_json` jsonb_path_ops) for hierarchical inventory queries; (user_id, captured_at)
 - `jobs`: (user_id, created_at); (status)
 - `koi_ticks`: (user_id, started_at); (status)
 - `plans`: (tick_id); (status)

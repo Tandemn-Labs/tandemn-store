@@ -1,8 +1,21 @@
-"""ResourceMap model — DATA_ARCHITECTURE.md §5.
+"""ResourceMap — the shared wire contract for Orca's live resource view.
 
-A snapshot of available GPUs/nodes for a user. snapshot_json is
-intentionally schemaless so the inventory model can evolve without a
-migration; the database indexes it with GIN.
+NOT a Postgres table. Orca owns a single in-memory instance (single
+writer: its reconciler) and serves read-only snapshots to Koi over
+GET /resource-map. `version` is monotonic — bump it on every update so
+readers can detect staleness and order snapshots. If Orca ever runs
+multi-replica, this moves to a Postgres JSONB row with the same shape.
+
+Shape example:
+
+    {
+      "version": 41,
+      "updated_at": "2026-06-10T12:00:00Z",
+      "pools": {
+        "aws": {"g6e.12xlarge": {"total": 8, "available": 3}},
+        "gcp": {"a3-highgpu-8g": {"total": 2, "available": 2}}
+      }
+    }
 """
 
 from __future__ import annotations
@@ -12,12 +25,19 @@ from typing import Any
 
 from pydantic import Field
 
-from tandemn_system_data.ids import new_resource_map_id
 from tandemn_system_data.models._base import CanonicalModel, utc_now
 
 
+class ResourcePool(CanonicalModel):
+    """Reserved capacity for one instance type with one provider."""
+
+    total: int
+    available: int
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResourceMap(CanonicalModel):
-    resource_map_id: str = Field(default_factory=new_resource_map_id)
-    user_id: str
-    snapshot_json: dict[str, Any] = Field(default_factory=dict)
-    captured_at: datetime = Field(default_factory=utc_now)
+    version: int = 0
+    updated_at: datetime = Field(default_factory=utc_now)
+    # provider -> instance_type -> pool, e.g. pools["aws"]["g6e.12xlarge"]
+    pools: dict[str, dict[str, ResourcePool]] = Field(default_factory=dict)

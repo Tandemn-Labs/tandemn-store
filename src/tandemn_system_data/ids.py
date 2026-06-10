@@ -28,7 +28,6 @@ from ulid import ULID
 
 Kind = Literal[
     "user",
-    "resource_map",
     "job",
     "koi_tick",
     "plan",
@@ -44,7 +43,6 @@ Kind = Literal[
 
 PREFIXES: dict[Kind, str] = {
     "user": "usr",
-    "resource_map": "rmap",
     "job": "job",
     "koi_tick": "tick",
     "plan": "plan",
@@ -84,10 +82,6 @@ def new_id(kind: Kind) -> str:
 
 def new_user_id() -> str:
     return new_id("user")
-
-
-def new_resource_map_id() -> str:
-    return new_id("resource_map")
 
 
 def new_job_id() -> str:

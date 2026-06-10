@@ -49,33 +49,6 @@ class UserRow(Base):
 
 
 # ---------------------------------------------------------------------------
-# §5: resource_maps
-# ---------------------------------------------------------------------------
-
-
-class ResourceMapRow(Base):
-    __tablename__ = "resource_maps"
-
-    resource_map_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    user_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
-    )
-    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (
-        Index("ix_resource_maps_user_captured", "user_id", "captured_at"),
-        # GIN index for path/value queries against the snapshot blob.
-        Index(
-            "ix_resource_maps_snapshot_gin",
-            "snapshot_json",
-            postgresql_using="gin",
-            postgresql_ops={"snapshot_json": "jsonb_path_ops"},
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
 # §5: jobs
 # ---------------------------------------------------------------------------
 
@@ -345,7 +318,6 @@ class CredentialsRow(Base):
 
 ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
-    ResourceMapRow,
     JobRow,
     KoiTickRow,
     PlanRow,

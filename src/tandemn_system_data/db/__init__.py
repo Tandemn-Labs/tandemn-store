@@ -22,7 +22,6 @@ from tandemn_system_data.db.orm import (
     PlanJobRow,
     PlanRow,
     RankRow,
-    ResourceMapRow,
     UserRow,
 )
 
@@ -39,7 +38,6 @@ __all__ = [
     "KoiTickRow",
     "OutcomeRow",
     "PlanJobRow",
-    "ResourceMapRow",
     "RankRow",
     "UserRow",
 ]

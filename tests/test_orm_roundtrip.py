@@ -26,7 +26,6 @@ from tandemn_system_data.db import (
     PlanJobRow,
     PlanRow,
     RankRow,
-    ResourceMapRow,
     UserRow,
 )
 from tandemn_system_data.ids import (
@@ -39,7 +38,6 @@ from tandemn_system_data.ids import (
     new_outcome_id,
     new_plan_id,
     new_rank_id,
-    new_resource_map_id,
     new_user_id,
 )
 
@@ -102,7 +100,6 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
     now = datetime.now(UTC)
 
     user_id = new_user_id()
-    resource_map_id = new_resource_map_id()
     job_id = new_job_id()
     tick_id = new_koi_tick_id()
     plan_id = new_plan_id()
@@ -117,14 +114,6 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         # User + user-scoped rows first.
         s.add(UserRow(user_id=user_id, name="Ventura", created_at=now))
         s.flush()
-        s.add(
-            ResourceMapRow(
-                resource_map_id=resource_map_id,
-                user_id=user_id,
-                snapshot_json={"nodes": [{"node_id": "gpu-1", "hw": "H100"}]},
-                captured_at=now,
-            )
-        )
         s.add(
             JobRow(
                 job_id=job_id,

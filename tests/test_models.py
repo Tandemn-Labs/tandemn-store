@@ -31,6 +31,7 @@ from tandemn_system_data.models import (
     Rank,
     RankStatus,
     ResourceMap,
+    ResourcePool,
     User,
 )
 
@@ -46,10 +47,18 @@ def test_user_defaults():
     assert t.created_at.tzinfo is not None  # tz-aware
 
 
-def test_resource_map_defaults():
-    rm = ResourceMap(user_id="usr_abc", snapshot_json={"nodes": []})
-    assert rm.resource_map_id.startswith("rmap_")
-    assert rm.snapshot_json == {"nodes": []}
+def test_resource_map_wire_contract():
+    """ResourceMap is Orca's in-memory view, NOT a Postgres row: no ID,
+    no user FK, just version + pools."""
+    rm = ResourceMap(
+        version=3,
+        pools={"aws": {"g6e.12xlarge": ResourcePool(total=8, available=3)}},
+    )
+    assert rm.version == 3
+    assert rm.pools["aws"]["g6e.12xlarge"].available == 3
+    assert rm.updated_at.tzinfo is not None
+    # Round-trips through JSON for the GET /resource-map endpoint.
+    assert ResourceMap.model_validate_json(rm.model_dump_json()) == rm
 
 
 def test_job_defaults_status_submitted():

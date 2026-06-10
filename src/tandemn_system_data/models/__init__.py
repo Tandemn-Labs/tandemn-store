@@ -29,7 +29,7 @@ from tandemn_system_data.models.outcome import Outcome
 from tandemn_system_data.models.plan import Plan
 from tandemn_system_data.models.plan_job import PlanJob
 from tandemn_system_data.models.rank import Rank
-from tandemn_system_data.models.resource_map import ResourceMap
+from tandemn_system_data.models.resource_map import ResourceMap, ResourcePool
 from tandemn_system_data.models.user import User
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     "Outcome",
     "Rank",
     "ResourceMap",
+    "ResourcePool",
     "PlanJob",
     "User",
     # Enums
