@@ -13,6 +13,11 @@ from tandemn_system_data.clients.credentials_store import (
 from tandemn_system_data.clients.event_log import PostgresEventLog
 from tandemn_system_data.clients.jobs import JobStore
 from tandemn_system_data.clients.postgres import PostgresClient
+from tandemn_system_data.clients.resource_map import (
+    ResourceMapClient,
+    ResourceMapStore,
+    create_resource_map_app,
+)
 from tandemn_system_data.clients.s3_blob import S3BlobClient
 
 __all__ = [
@@ -23,6 +28,9 @@ __all__ = [
     "JobStore",
     "PostgresEventLog",
     "PostgresClient",
+    "ResourceMapClient",
+    "ResourceMapStore",
     "S3BlobClient",
     "create_credentials_app",
+    "create_resource_map_app",
 ]
