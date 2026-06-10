@@ -1,13 +1,11 @@
 """tandemn_user_data — user payloads in motion (Orca + workers + CLI).
 
-This package owns:
-  - NormalizedRecord / PayloadRef / OutputRef types
-  - InputConnector / OutputConnector protocols
-  - Reference connectors (LocalFileConnector, S3Connector)
-  - Worker-side fetch_payload / write_outputs
-  - Orca-side indexer
+Owns PayloadRef / OutputRef / NormalizedRecord, the connector protocols
+and reference connectors, WorkerClient, the Orca-side indexer, and the
+worker-side credential resolver.
 
-Imported by Orca, workers, and CLI. Does NOT import tandemn_system_data.
+Must NOT import tandemn_system_data: this package runs on customer GPU
+nodes and the boundary is enforced by import-linter.
 """
 
 __version__ = "0.1.0"

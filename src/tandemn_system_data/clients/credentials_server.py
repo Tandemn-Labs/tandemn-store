@@ -6,7 +6,7 @@ endpoint is folded into Orca's main FastAPI app; here it ships as a
 factory function so the same code path is used in tests and in Orca.
 
 Auth: §7 says \"mTLS or signed worker identity\". Per §11 \"Out of scope\",
-real mTLS / KMS / Vault integration is deferred (Phase 1d ships a
+real mTLS / KMS / Vault integration is deferred (the MVP ships a
 shared-secret bearer header as a stand-in). The auth surface is small
 and pluggable so swapping in mTLS later is a single change.
 

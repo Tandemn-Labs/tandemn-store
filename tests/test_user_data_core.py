@@ -108,8 +108,6 @@ def test_registry_register_and_lookup():
     reg.register(conn)
     assert reg.input_for("fake") is conn
     assert reg.output_for("fake") is conn
-    assert reg.known_input_types() == ["fake"]
-    assert reg.known_output_types() == ["fake"]
 
 
 def test_registry_rejects_unknown_type():

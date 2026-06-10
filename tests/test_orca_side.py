@@ -12,17 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from tandemn_user_data.connectors import LocalFileConnector
 from tandemn_user_data.core import (
     ConnectorRegistry,
     NormalizedRecord,
     PayloadRef,
 )
-from tandemn_user_data.orca import (
-    index_source,
-    index_source_to_list,
-)
+from tandemn_user_data.orca import index_source
 from tandemn_user_data.worker import WorkerClient
+from tests.local_connector import LocalFileConnector
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -75,15 +72,6 @@ def test_index_source_yields_payload_refs(input_jsonl: Path, registry: Connector
     # 8 lines / 3 -> 3 chunks (3 + 3 + 2).
     assert len(refs) == 3
     assert all(isinstance(r, PayloadRef) for r in refs)
-
-
-def test_index_source_to_list_returns_list(input_jsonl: Path, registry: ConnectorRegistry):
-    refs = index_source_to_list(
-        {"type": "local", "uri": str(input_jsonl), "format": "jsonl"},
-        registry=registry,
-    )
-    assert isinstance(refs, list)
-    assert len(refs) >= 1
 
 
 def test_index_source_requires_type(registry: ConnectorRegistry):

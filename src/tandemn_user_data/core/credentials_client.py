@@ -1,18 +1,13 @@
 """Worker-side credential resolution — DATA_ARCHITECTURE.md §7.
 
-Per the doc, workers NEVER hold long-lived customer credentials. They
-resolve a `credentials_ref` at fetch time, typically by calling Orca's
-narrow GET /credentials/<ref> endpoint over mTLS.
+Workers never hold long-lived customer credentials. They resolve a
+credentials_ref at fetch time via Orca's narrow GET /credentials/<ref>.
 
-Two implementations ship in this module:
+Responses are deliberately NOT cached: credentials are short-lived and
+the server enforces expiry (410). A cache would hand out secrets past
+their expires_at.
 
-  NullResolver           always returns None; for connectors that don't
-                         need credentials (e.g. LocalFileConnector).
-  HttpCredentialResolver real worker-side resolver: GETs the parsed
-                         secret_payload from the credentials endpoint.
-
-HttpCredentialResolver does NOT import anything from tandemn_system_data
-— the worker side of the user-data boundary stays clean (\u00a71 principle 2).
+This module must not import tandemn_system_data (§1 principle 2).
 """
 
 from __future__ import annotations
@@ -23,8 +18,7 @@ import httpx
 
 
 class NullResolver:
-    """Returns None for every credentials_ref. Useful for tests and
-    connectors that don't need credentials."""
+    """Returns None for every ref. For tests and credential-less connectors."""
 
     def resolve(self, credentials_ref: str | None) -> Any | None:  # noqa: ARG002
         return None
@@ -34,21 +28,10 @@ _DEFAULT_AUTH_HEADER = "X-Tandemn-Worker-Token"
 
 
 class HttpCredentialResolver:
-    """Worker-side resolver that hits the Orca credentials endpoint.
+    """Resolves a credentials_ref against the Orca credentials endpoint.
 
-    Uses httpx with a bounded timeout and a small in-process cache so
-    repeated lookups for the same ref within one process don't
-    re-hit the server.
-
-    Construction:
-        resolver = HttpCredentialResolver(
-            base_url="https://orca.internal",
-            token="<worker bearer token>",
-        )
-
-    Returns the parsed `secret_payload` field from the endpoint
-    response (a dict, list, str, or None depending on what Orca
-    minted). Returns None when the credentials_ref is itself None.
+    Returns the parsed `secret_payload` from the response, or None when
+    the ref itself is None.
     """
 
     def __init__(
@@ -58,7 +41,6 @@ class HttpCredentialResolver:
         *,
         auth_header: str = _DEFAULT_AUTH_HEADER,
         timeout: float = 5.0,
-        cache_responses: bool = True,
     ) -> None:
         if not base_url:
             raise ValueError("base_url is required")
@@ -67,15 +49,10 @@ class HttpCredentialResolver:
         self._base_url = base_url.rstrip("/")
         self._headers = {auth_header: token}
         self._timeout = timeout
-        self._cache_responses = cache_responses
-        self._cache: dict[str, Any] = {}
 
-    # CredentialResolver protocol
     def resolve(self, credentials_ref: str | None) -> Any | None:
         if credentials_ref is None:
             return None
-        if self._cache_responses and credentials_ref in self._cache:
-            return self._cache[credentials_ref]
 
         url = f"{self._base_url}/credentials/{credentials_ref}"
         resp = httpx.get(url, headers=self._headers, timeout=self._timeout)
@@ -91,7 +68,4 @@ class HttpCredentialResolver:
                 f"credentials endpoint returned {resp.status_code}: {resp.text[:200]}"
             )
 
-        secret_payload = resp.json().get("secret_payload")
-        if self._cache_responses:
-            self._cache[credentials_ref] = secret_payload
-        return secret_payload
+        return resp.json().get("secret_payload")

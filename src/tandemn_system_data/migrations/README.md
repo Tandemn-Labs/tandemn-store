@@ -1,4 +1,4 @@
-Alembic migrations land here in Phase 1b.
+Alembic migrations for the canonical Postgres spine.
 
 Layout:
   alembic.ini       (config; lives at repo root)

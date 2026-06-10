@@ -1,12 +1,7 @@
-"""Worker-side fetch_payload / write_outputs tests.
+"""Worker-side WorkerClient tests (DATA_ARCHITECTURE.md §7).
 
-Unit-style tests use LocalFileConnector + NullResolver. The S3 path is
-covered end-to-end in test_s3_connector.py and reused implicitly when
-WorkerClient delegates to the registered S3Connector.
-
-Anchored to DATA_ARCHITECTURE.md §7 (worker fetches via PayloadRef,
-resolves credentials_ref to short-lived tokens, never holds long-lived
-customer credentials).
+Uses the test-only local connector + NullResolver; the S3 path is
+covered in test_s3_connector.py.
 """
 
 from __future__ import annotations
@@ -17,21 +12,14 @@ from pathlib import Path
 import pytest
 
 from tandemn_user_data.core import (
+    ConnectorRegistry,
     NormalizedRecord,
     NullResolver,
     OutputRef,
     PayloadRef,
 )
-from tandemn_user_data.worker import (
-    WorkerClient,
-    default_registry,
-    fetch_payload,
-    write_outputs,
-)
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+from tandemn_user_data.worker import WorkerClient, default_registry
+from tests.local_connector import LocalFileConnector
 
 
 @pytest.fixture
@@ -53,17 +41,17 @@ def input_jsonl(tmp_path: Path) -> Path:
     return path
 
 
-# ---------------------------------------------------------------------------
-# Default registry + WorkerClient construction
-# ---------------------------------------------------------------------------
+@pytest.fixture
+def registry() -> ConnectorRegistry:
+    reg = ConnectorRegistry()
+    reg.register(LocalFileConnector())
+    return reg
 
 
-def test_default_registry_registers_local_and_s3():
+def test_default_registry_registers_s3():
     reg = default_registry()
-    assert "local" in reg.known_input_types()
-    assert "s3" in reg.known_input_types()
-    assert "local" in reg.known_output_types()
-    assert "s3" in reg.known_output_types()
+    assert reg.input_for("s3") is not None
+    assert reg.output_for("s3") is not None
 
 
 def test_worker_client_uses_null_resolver_by_default():
@@ -71,13 +59,8 @@ def test_worker_client_uses_null_resolver_by_default():
     assert isinstance(client._resolver, NullResolver)
 
 
-# ---------------------------------------------------------------------------
-# fetch_payload — LocalFileConnector path
-# ---------------------------------------------------------------------------
-
-
-def test_fetch_payload_with_payload_ref_object(input_jsonl: Path):
-    client = WorkerClient()
+def test_fetch_payload_with_payload_ref_object(input_jsonl: Path, registry: ConnectorRegistry):
+    client = WorkerClient(registry=registry)
     ref = PayloadRef(type="local", uri=str(input_jsonl))
     records = list(client.fetch_payload(ref))
     assert len(records) == 6
@@ -85,10 +68,10 @@ def test_fetch_payload_with_payload_ref_object(input_jsonl: Path):
     assert records[0].prompt == "prompt 0"
 
 
-def test_fetch_payload_accepts_plain_dict(input_jsonl: Path):
-    """Workers pop chunks as dicts from the chunk queue; WorkerClient should
-    coerce them to PayloadRef."""
-    records = list(fetch_payload({"type": "local", "uri": str(input_jsonl), "format": "jsonl"}))
+def test_fetch_payload_accepts_plain_dict(input_jsonl: Path, registry: ConnectorRegistry):
+    """Workers receive chunk metadata as dicts; WorkerClient must coerce."""
+    client = WorkerClient(registry=registry)
+    records = list(client.fetch_payload({"type": "local", "uri": str(input_jsonl)}))
     assert len(records) == 6
 
 
@@ -98,14 +81,10 @@ def test_fetch_payload_unknown_type_raises():
         list(client.fetch_payload(PayloadRef(type="nonexistent", uri="x")))
 
 
-# ---------------------------------------------------------------------------
-# write_outputs
-# ---------------------------------------------------------------------------
-
-
-def test_write_outputs_round_trips_through_local(tmp_path: Path):
+def test_write_outputs_round_trips_through_local(tmp_path: Path, registry: ConnectorRegistry):
+    client = WorkerClient(registry=registry)
     target = tmp_path / "outputs.jsonl"
-    n = write_outputs(
+    n = client.write_outputs(
         OutputRef(type="local", uri=str(target)),
         [
             NormalizedRecord(
@@ -118,20 +97,11 @@ def test_write_outputs_round_trips_through_local(tmp_path: Path):
         ],
     )
     assert n == 3
-    # Read back through the same machinery.
-    read_back = list(fetch_payload({"type": "local", "uri": str(target)}))
+    read_back = list(client.fetch_payload({"type": "local", "uri": str(target)}))
     assert [r.prompt for r in read_back] == [f"reply {i}" for i in range(3)]
 
 
-# ---------------------------------------------------------------------------
-# Credential resolution (§7)
-# ---------------------------------------------------------------------------
-
-
-def test_resolver_is_called_with_credentials_ref(input_jsonl: Path):
-    """When a PayloadRef carries credentials_ref, the resolver must be
-    invoked with exactly that ref."""
-
+def test_resolver_is_called_with_credentials_ref(input_jsonl: Path, registry: ConnectorRegistry):
     calls: list[str | None] = []
 
     class RecordingResolver:
@@ -139,11 +109,7 @@ def test_resolver_is_called_with_credentials_ref(input_jsonl: Path):
             calls.append(credentials_ref)
             return None
 
-    client = WorkerClient(resolver=RecordingResolver())
-    ref = PayloadRef(
-        type="local",
-        uri=str(input_jsonl),
-        credentials_ref="cred_abc",
-    )
+    client = WorkerClient(registry=registry, resolver=RecordingResolver())
+    ref = PayloadRef(type="local", uri=str(input_jsonl), credentials_ref="cred_abc")
     list(client.fetch_payload(ref))
     assert calls == ["cred_abc"]

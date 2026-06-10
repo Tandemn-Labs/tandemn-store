@@ -1,4 +1,4 @@
-"""Phase 1a smoke: both packages import cleanly and expose the expected surface."""
+"""Smoke: both packages import cleanly and expose the expected surface."""
 
 from __future__ import annotations
 

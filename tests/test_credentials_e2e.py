@@ -1,22 +1,10 @@
-r"""End-to-end test of the full Phase 1d credentials lifecycle.
+r"""End-to-end test of the credentials lifecycle (DATA_ARCHITECTURE.md §7).
 
-Reproduces the DATA_ARCHITECTURE.md §7 sequence in code:
+    Orca: CredentialStore.put -> index_source -> PayloadRefs carry credentials_ref
+    Worker: HttpCredentialResolver -> GET /credentials/<ref> -> connector.read
 
-    Orca creates a credentials_ref and persists it into Postgres (CredentialStore.put)
-        -> indexes the user data source into PayloadRefs
-        -> chunks carry credentials_ref
-
-    Worker WorkerClient
-        -> HttpCredentialResolver.resolve(credentials_ref)
-            -> hits credentials_server (GET /credentials/<ref>)
-            -> server reads CredentialStore, returns parsed payload
-        -> connector.read(payload_ref, creds=resolved)
-        -> NormalizedRecords flow to vLLM
-
-This is the highest-confidence test of the Phase 1d contract: a real
-uvicorn process on an ephemeral port, real httpx calls, real Postgres.
-
-Requires \`make up\`.
+Runs a real uvicorn server on an ephemeral port against real Postgres.
+Requires `make up`.
 """
 
 from __future__ import annotations
@@ -42,18 +30,18 @@ from tandemn_system_data.clients import (
 )
 from tandemn_system_data.db import Base, UserRow
 from tandemn_system_data.ids import new_user_id
-from tandemn_user_data.connectors import LocalFileConnector
 from tandemn_user_data.core import (
     ConnectorRegistry,
     HttpCredentialResolver,
 )
 from tandemn_user_data.orca import index_source
 from tandemn_user_data.worker import WorkerClient
+from tests.local_connector import LocalFileConnector
 
 pytestmark = pytest.mark.integration
 
 
-WORKER_TOKEN = "phase-1d-e2e-token"
+WORKER_TOKEN = "credentials-e2e-token"
 
 
 # ---------------------------------------------------------------------------
@@ -156,15 +144,15 @@ def test_section_7_full_lifecycle_through_real_http(
         s.add(
             UserRow(
                 user_id=user_id,
-                name="phase-1d-e2e",
+                name="credentials-e2e",
                 created_at=datetime.now(UTC),
             )
         )
 
     # CredentialStore is the canonical persistence — Orca writes here.
     store = CredentialStore(pg_client)
-    credentials_ref = "cred_phase_1d_e2e"
-    secret_payload = {"note": "phase-1d-e2e secret"}
+    credentials_ref = "cred_e2e"
+    secret_payload = {"note": "e2e secret"}
     store.put(
         user_id=user_id,
         scope_json={"prefix": str(tmp_path)},

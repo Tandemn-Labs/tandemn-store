@@ -1,4 +1,4 @@
-"""Phase 1a integration smoke: connect to Postgres + MinIO.
+"""Integration smoke: connect to Postgres + MinIO.
 
 Requires `make up` (docker-compose stack) to be running.
 Skip these unless the integration marker is selected.

@@ -1,32 +1,18 @@
-"""S3Connector — read / write / index JSONL on S3 (or MinIO).
+"""S3Connector — JSONL on user S3 buckets / MinIO (type "s3").
 
-Per DATA_ARCHITECTURE.md §7, this connector handles **user** S3 buckets.
-It is intentionally separate from tandemn_system_data.clients.S3BlobClient,
-which is for Tandemn-owned blobs only. The user-data path must not
-import anything from tandemn_system_data.
+Handles USER buckets only. Tandemn-owned blobs go through
+tandemn_system_data.clients.S3BlobClient; the two must stay separate
+because this package runs on customer GPU nodes.
 
-Source / target shape:
+source_spec for index():
+    { uri: "s3://bucket/prefix/", format: "jsonl", endpoint?: ..., region?: ... }
 
-  PayloadRef.type == OutputRef.type == "s3"
-  uri:   "s3://bucket/prefix/object_or_prefix"
+Credentials arrive per call from the CredentialResolver as
+{ access_key, secret_key, endpoint?, region? }. With creds=None the
+connector falls back to constructor defaults, then boto3's env/IAM chain.
 
-  source_spec (passed to index):
-    { uri:        "s3://bucket/prefix/",
-      format:     "jsonl",
-      endpoint:   "https://s3.amazonaws.com",   # optional; MinIO override
-      region:     "us-east-1",                  # optional
-    }
-
-Credentials, when present, are passed in per call by the worker via the
-CredentialResolver. Shape:
-    { access_key, secret_key, endpoint?, region? }
-If creds is None, the connector falls back to its constructor defaults
-and then to boto3's environment / IAM chain.
-
-Indexing strategy: one PayloadRef per S3 object found under the prefix.
-Range-splitting JSONL inside a single object is a future enhancement;
-for blob-shaped inputs (one logical chunk per object) this is the right
-default.
+Indexing emits one PayloadRef per object under the prefix. Range-splitting
+within an object is a future enhancement.
 """
 
 from __future__ import annotations
@@ -44,22 +30,14 @@ from botocore.client import Config
 from tandemn_user_data.connectors.jsonl import record_from_jsonl_row
 from tandemn_user_data.core.record import NormalizedRecord, OutputRef, PayloadRef
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _parse_s3_uri(uri: str) -> tuple[str, str]:
-    """Split an s3:// URI into (bucket, key). The key may be empty
-    or end with '/' to indicate a prefix."""
     parsed = urlparse(uri)
     if parsed.scheme != "s3":
         raise ValueError(f"expected s3:// URI, got {uri!r}")
     if not parsed.netloc:
         raise ValueError(f"s3 URI missing bucket: {uri!r}")
-    bucket = parsed.netloc
-    key = parsed.path.lstrip("/")
-    return bucket, key
+    return parsed.netloc, parsed.path.lstrip("/")
 
 
 def _is_prefix(uri: str) -> bool:
@@ -68,14 +46,7 @@ def _is_prefix(uri: str) -> bool:
     return key == "" or key.endswith("/")
 
 
-# ---------------------------------------------------------------------------
-# S3Connector
-# ---------------------------------------------------------------------------
-
-
 class S3Connector:
-    """Reference connector for JSONL on S3 / MinIO."""
-
     type = "s3"
 
     def __init__(
@@ -86,14 +57,10 @@ class S3Connector:
         default_access_key: str | None = None,
         default_secret_key: str | None = None,
     ) -> None:
-        # Defaults used when the resolver returns None (e.g. running
-        # against a public bucket or relying on boto3's IAM chain).
         self._default_endpoint = default_endpoint
         self._default_region = default_region
         self._default_access_key = default_access_key
         self._default_secret_key = default_secret_key
-
-    # ----- client construction --------------------------------------------
 
     def _client(self, creds: dict[str, Any] | None):
         creds = creds or {}
@@ -114,8 +81,6 @@ class S3Connector:
 
         return boto3.client("s3", **kwargs)
 
-    # ----- input -----------------------------------------------------------
-
     def index(
         self,
         source_spec: dict[str, Any],
@@ -130,13 +95,12 @@ class S3Connector:
         s3 = self._client(creds)
 
         if _is_prefix(uri):
-            # List every object under the prefix; one PayloadRef per object.
             paginator = s3.get_paginator("list_objects_v2")
             for page in paginator.paginate(Bucket=bucket, Prefix=key):
                 for obj in page.get("Contents", []) or []:
                     obj_key = obj["Key"]
                     if obj_key.endswith("/"):
-                        # ignore zero-byte "directory" markers
+                        # zero-byte "directory" markers
                         continue
                     yield PayloadRef(
                         type=self.type,
@@ -144,7 +108,6 @@ class S3Connector:
                         format="jsonl",
                     )
         else:
-            # Single object — one PayloadRef.
             yield PayloadRef(type=self.type, uri=uri, format="jsonl")
 
     def read(
@@ -168,16 +131,12 @@ class S3Connector:
             # S3 Range is inclusive end; our byte_range is exclusive end.
             get_kwargs["Range"] = f"bytes={start}-{end - 1}"
 
-        obj = s3.get_object(**get_kwargs)
-        body = obj["Body"].read()
+        body = s3.get_object(**get_kwargs)["Body"].read()
 
         for raw in body.splitlines():
             if not raw.strip():
                 continue
-            row = json.loads(raw)
-            yield record_from_jsonl_row(row)
-
-    # ----- output ---------------------------------------------------------
+            yield record_from_jsonl_row(json.loads(raw))
 
     def write(
         self,
@@ -195,10 +154,8 @@ class S3Connector:
         bucket, key = _parse_s3_uri(output_ref.uri)
         s3 = self._client(creds)
 
-        # S3 has no append. Each write() call produces one new object
-        # under the prefix (if uri is a prefix) or overwrites the named
-        # object (if uri is an exact key). Most callers will pass a
-        # prefix and let the connector pick a unique part name.
+        # S3 has no append: a prefix URI gets a unique part object per
+        # write() call; an exact key is overwritten.
         if _is_prefix(output_ref.uri):
             object_key = f"{key}part-{uuid.uuid4().hex[:12]}.jsonl"
         else:
@@ -214,7 +171,6 @@ class S3Connector:
         if count == 0:
             return 0
 
-        buf.seek(0)
         s3.put_object(
             Bucket=bucket,
             Key=object_key,

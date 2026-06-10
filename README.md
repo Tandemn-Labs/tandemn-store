@@ -4,28 +4,35 @@ Canonical data layer for Tandemn (Orca + Koi + workers).
 
 Ships two packages:
 
-- **`tandemn_system_data`** — canonical state (Postgres spine, Postgres event log, Tandemn-owned S3 blobs). Imported by **Orca and Koi only**.
-- **`tandemn_user_data`** — user payloads in motion (connectors, credentials, `PayloadRef` / `OutputRef`). Imported by **Orca, workers, and CLI**.
+- **`tandemn_system_data`** — canonical state (Postgres spine, Postgres event log, Tandemn-owned S3 blobs, credentials store/server). Imported by **Orca and Koi only**.
+- **`tandemn_user_data`** — user payloads in motion (connectors, credential resolver, `PayloadRef` / `OutputRef` / `NormalizedRecord`). Imported by **Orca, workers, and CLI**.
 
 The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 
 ---
 
-## Status
+## What's here
 
-**Phase 1a (done):** scaffold + connectivity. Both packages import. Postgres, Redis, and MinIO start via `make up`. Smoke tests pass.
+**`tandemn_system_data`**
+- Canonical IDs (`ids.py`), Pydantic models, typed event payload registry (`events.py`)
+- SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5 + Alembic migrations
+- `PostgresClient`, `PostgresEventLog` (append events, read by cursor, `event_consumer_offsets`)
+- `CredentialStore` + `/credentials/<ref>` FastAPI app behind a worker bearer token
+- `S3BlobClient` for Tandemn-owned blobs (never user data)
 
-**Phase 1b (done):** canonical IDs, Pydantic models, typed event payload registry, SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5, Alembic baseline migration, and an end-to-end roundtrip test that goes through the migration.
+**`tandemn_user_data`**
+- `PayloadRef` / `OutputRef` / `NormalizedRecord` core types
+- Connector protocols + registry; `S3Connector` (JSONL, OpenAI batch-style inputs)
+- `WorkerClient` (worker-side fetch/write), `HttpCredentialResolver` (resolve scoped creds at fetch time)
+- `index_source` (Orca-side: input_source JSONB → PayloadRefs)
 
-**Phase 1c (done):** `tandemn_user_data` core types (`PayloadRef`, `OutputRef`, `NormalizedRecord`), connector protocols + registry, `LocalFileConnector` (JSONL on disk), `S3Connector` (JSONL on S3/MinIO), worker-side `WorkerClient` / `fetch_payload` / `write_outputs`, Orca-side `index_source`, and an end-to-end test of the full §7 dataflow.
+The `tandemn_user_data → tandemn_system_data` import direction is forbidden
+by `.importlinter` and checked on every PR; workers run on customer GPU
+nodes and must never reach canonical state.
 
-**Phase 1d (done):** `CredentialStore` (canonical persistence), `/credentials/<ref>` FastAPI app behind a worker-bearer-token header, `HttpCredentialResolver` (worker-side, no system_data imports), full §7 lifecycle e2e through real HTTP, `import-linter` enforcing the §1 principle 2 boundary, GitHub Actions CI running lint + unit + import-linter + integration + `alembic check` on every PR.
-
-**Phase 1e (done):** `PostgresEventLog` implements the MVP event path in §8: append event rows, read by cursor, maintain `event_consumer_offsets`, and let Koi/Orca poll events durably without Redis Streams.
-
-**Phase 1f (done):** Redis-backed chunk queue implements the hot batch work queue: Orca/admin creates queues and reclaims expired chunks; workers pull, renew, complete, and fail chunks using `payload_ref`, `output_ref`, and `chain_id` metadata.
-
-**Phase 2 (next):** Strangler-fig integration into `tandemn-system` (Orca) — `USE_CANONICAL_STORE` feature flag, `submit_batch` cutover, real STS / KMS / Vault behind `CredentialIssuer`, replace the rest of the webhook flows with Postgres events.
+**Next:** strangler-fig integration into `tandemn-system` (Orca) — `submit_batch`
+cutover, chunk queue behind Orca's HTTP API, real STS/KMS/Vault behind the
+credential issuer.
 
 ---
 
@@ -34,7 +41,7 @@ The architecture and rationale live in `tandemn-system/DATA_ARCHITECTURE.md`.
 Requires Python 3.12, [uv](https://github.com/astral-sh/uv), and Docker.
 
 ```bash
-# 1. Bring up Postgres + Redis + MinIO
+# 1. Bring up Postgres + MinIO
 make up
 
 # 2. Install deps into a local .venv
@@ -43,11 +50,11 @@ make install
 # 3. Run unit tests (no infra needed)
 make test
 
-# 4. Run integration smoke (requires `make up`)
+# 4. Run integration tests (requires `make up`)
 make test-integration
 ```
 
-Tear down with `make down`. Wipe local data with `make down && docker volume rm tandemn-store_postgres-data tandemn-store_redis-data tandemn-store_minio-data`.
+Tear down with `make down`. Wipe local data with `make down && docker volume rm tandemn-store_postgres-data tandemn-store_minio-data`.
 
 ---
 
@@ -58,10 +65,12 @@ Ports are non-default to avoid clashing with developer-local installs.
 | Service  | Host URL                             | Container port | Credentials                          |
 |----------|--------------------------------------|----------------|--------------------------------------|
 | Postgres | `localhost:55432`                    | 5432           | `tandemn` / `tandemn` / db `tandemn` |
-| Redis    | `localhost:56379`                    | 6379           | none                                 |
 | MinIO    | `localhost:59000` (API), `:59001` (console) | 9000 / 9001 | `tandemn` / `tandemn-dev-key`        |
 
-Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_REDIS_URL`, `TANDEMN_S3_ENDPOINT`, `TANDEMN_S3_ACCESS_KEY`, `TANDEMN_S3_SECRET_KEY`, `TANDEMN_S3_BUCKET`.
+MinIO exists only as the S3-compatible test double; production targets
+real S3. CI must never require AWS.
+
+Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_S3_ENDPOINT`, `TANDEMN_S3_ACCESS_KEY`, `TANDEMN_S3_SECRET_KEY`, `TANDEMN_S3_BUCKET`.
 
 ---
 
@@ -70,26 +79,18 @@ Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_REDIS_URL`, `TANDEMN_S3_
 ```
 src/
 ├── tandemn_system_data/         # canonical state (Orca + Koi)
-│   ├── models/                  # Pydantic models           (Phase 1b ✅)
-│   ├── db/                      # SQLAlchemy ORM            (Phase 1b ✅)
-│   ├── migrations/              # Alembic                   (Phase 1b ✅)
-│   ├── clients/                 # Postgres / events / chunk admin / S3
-│   │                            # (Phase 1a/e/f ✅)
-│   ├── ids.py                   # canonical ID generator    (Phase 1b ✅)
-│   └── events.py                # Event envelope            (Phase 1b ✅)
+│   ├── models/                  # Pydantic models
+│   ├── db/                      # SQLAlchemy ORM
+│   ├── migrations/              # Alembic
+│   ├── clients/                 # Postgres / event log / credentials / S3
+│   ├── ids.py                   # canonical ID generator
+│   └── events.py                # event envelope + payload registry
 └── tandemn_user_data/           # user payloads (Orca + workers + CLI)
-    ├── core/                    # NormalizedRecord, refs +
-    │                            # HttpCredentialResolver    (Phase 1c/d ✅)
-    ├── connectors/              # S3 / local / future       (Phase 1c ✅)
-    ├── worker/                  # WorkerClient + chunk worker queue
-    │                            # (Phase 1c/f ✅)
-    └── orca/                    # source indexer            (Phase 1c ✅)
+    ├── core/                    # refs, records, protocols, resolver
+    ├── connectors/              # s3 (one PR per new source)
+    ├── worker/                  # WorkerClient
+    └── orca/                    # source indexer
 ```
 
-For a visual of the canonical schema (tables, foreign keys, key
-columns) see [`DATABASE.md`](./DATABASE.md). The diagram renders inline
-on GitHub.
-
-The `tandemn_user_data → tandemn_system_data` direction is forbidden by
-`.importlinter` and checked on every PR. Workers must never import
-`tandemn_system_data`. See `DATA_ARCHITECTURE.md` §1 principle 2 for why.
+For a visual of the canonical schema (tables, foreign keys, key columns)
+see [`DATABASE.md`](./DATABASE.md).
