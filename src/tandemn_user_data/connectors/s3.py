@@ -62,7 +62,7 @@ class S3Connector:
         self._default_access_key = default_access_key
         self._default_secret_key = default_secret_key
 
-    def _client(self, creds: dict[str, Any] | None):
+    def _client(self, creds: dict[str, Any] | None) -> Any:
         creds = creds or {}
         endpoint = creds.get("endpoint") or self._default_endpoint
         region = creds.get("region") or self._default_region or "us-east-1"

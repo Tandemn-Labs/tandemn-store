@@ -30,7 +30,9 @@ class PostgresClient:
     """
 
     def __init__(self, url: str | None = None) -> None:
-        self.url = url or os.getenv("TANDEMN_POSTGRES_URL", DEFAULT_URL)
+        if url is None:
+            url = os.getenv("TANDEMN_POSTGRES_URL", DEFAULT_URL)
+        self.url: str = url
         self._engine: Engine = create_engine(
             self.url,
             pool_pre_ping=True,

@@ -24,7 +24,7 @@ from sqlalchemy import select, update
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.db.orm import ChainRow, JobRow
 from tandemn_system_data.models._base import utc_now
-from tandemn_system_data.models.enums import ChainStatus, JobStatus
+from tandemn_system_data.models.enums import ChainRole, ChainStatus, JobStatus
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
 
 ACTIVE_CHAIN_STATUSES: tuple[ChainStatus, ...] = (
@@ -70,7 +70,8 @@ class JobStore:
                 .where(JobRow.job_id == job_id, JobRow.status.in_(list(expected)))
                 .values(**values)
             )
-            return result.rowcount == 1
+            # Session.execute(update()) always returns a CursorResult.
+            return result.rowcount == 1  # type: ignore[attr-defined]
 
     # ----- reads (Koi tick + lookups) --------------------------------------
 
@@ -111,8 +112,8 @@ class JobStore:
                     ChainAllocation(
                         chain_id=chain.chain_id,
                         plan_id=chain.plan_id,
-                        role=chain.role,
-                        status=chain.status,
+                        role=ChainRole(chain.role),
+                        status=ChainStatus(chain.status),
                         shape_json=chain.shape_json,
                         target_node=chain.target_node,
                     )

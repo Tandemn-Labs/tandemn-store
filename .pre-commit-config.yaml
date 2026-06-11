@@ -1,21 +1,57 @@
+---
 repos:
-  - repo: local
+  # Ruff (Python)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.2
     hooks:
       - id: ruff-check
-        name: ruff check
-        entry: uv run ruff check --force-exclude
+        args: [--fix]
+      - id: ruff-format
+
+  # Mypy (Python type checking). Configure with pyproject.toml.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
         language: system
         types_or: [python, pyi]
+        pass_filenames: false
 
-      - id: ruff-format-check
-        name: ruff format check
-        entry: uv run ruff format --check --force-exclude
-        language: system
-        types_or: [python, pyi]
-
+  # Boundary: tandemn_user_data must never import tandemn_system_data.
+  - repo: local
+    hooks:
       - id: import-linter
         name: import-linter
         entry: uv run lint-imports
         language: system
         pass_filenames: false
         always_run: true
+
+  # YAML formatter. Configure with .yamlfmt at repo root.
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+        files: \.(yaml|yml)$
+
+  # YAML style linter. Configure with .yamllint.yaml at repo root.
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+        args:
+          - --config-file
+          - .yamllint.yaml
+          - --strict
+        files: \.(yaml|yml)$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-statements

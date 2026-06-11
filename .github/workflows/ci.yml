@@ -1,6 +1,7 @@
+---
 name: ci
 
-on:
+"on":
   push:
     branches: [main]
   pull_request:
@@ -34,6 +35,9 @@ jobs:
       - name: ruff format --check
         run: uv run ruff format --check src tests
 
+      - name: mypy
+        run: uv run mypy
+
       - name: import-linter (DATA_ARCHITECTURE.md §1 principle 2)
         run: uv run lint-imports
 
@@ -55,10 +59,7 @@ jobs:
         ports:
           - 55432:5432
         options: >-
-          --health-cmd "pg_isready -U tandemn"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+          --health-cmd "pg_isready -U tandemn" --health-interval 5s --health-retries 10
     env:
       TANDEMN_POSTGRES_URL: postgresql+psycopg://tandemn:tandemn@localhost:55432/tandemn
       TANDEMN_S3_ENDPOINT: http://localhost:59000

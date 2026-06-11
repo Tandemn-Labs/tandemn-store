@@ -8,6 +8,7 @@ staging for pre-shard, internal logs, dumps.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import boto3
 from botocore.client import Config
@@ -46,7 +47,7 @@ class S3BlobClient:
         )
 
     @property
-    def client(self):
+    def client(self) -> Any:
         return self._client
 
     def ensure_bucket(self) -> None:

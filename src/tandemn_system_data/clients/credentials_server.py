@@ -73,7 +73,7 @@ def create_credentials_app(
     async def _require_token(
         request: Request,
         call_next: Callable[[Request], Awaitable[JSONResponse]],
-    ):
+    ) -> JSONResponse:
         if request.headers.get(auth_header) != resolved_token:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
