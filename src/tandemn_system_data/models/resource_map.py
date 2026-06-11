@@ -2,7 +2,9 @@
 
 NOT a Postgres table. Orca owns a single in-memory instance (single
 writer: its reconciler) and serves read-only snapshots to Koi over
-GET /resource-map. `version` is monotonic — bump it on every update so
+GET /resource-map. For the MVP it reflects the capacity reservations
+the user already holds — it is updated when jobs reserve or release
+resources, never by polling cloud providers. `version` is monotonic — bump it on every update so
 readers can detect staleness and order snapshots. If Orca ever runs
 multi-replica, this moves to a Postgres JSONB row with the same shape.
 

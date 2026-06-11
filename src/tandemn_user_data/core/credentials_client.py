@@ -20,7 +20,7 @@ import httpx
 class NullResolver:
     """Returns None for every ref. For tests and credential-less connectors."""
 
-    def resolve(self, credentials_ref: str | None) -> Any | None:  # noqa: ARG002
+    def resolve(self, credentials_ref: str | None) -> Any | None:
         return None
 
 

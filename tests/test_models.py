@@ -12,8 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from tandemn_system_data.models import (
-    Attempt,
-    AttemptStatus,
+    ActionType,
     Chain,
     ChainRole,
     ChainStatus,
@@ -22,13 +21,8 @@ from tandemn_system_data.models import (
     Job,
     JobKind,
     JobStatus,
-    Outcome,
-    OutcomeStatus,
-    PlacementStrategy,
     Plan,
-    PlanJob,
-    Rank,
-    RankStatus,
+    PlanAction,
     ResourceMap,
     ResourcePool,
     User,
@@ -60,13 +54,17 @@ def test_resource_map_wire_contract():
     assert ResourceMap.model_validate_json(rm.model_dump_json()) == rm
 
 
-def test_job_defaults_status_submitted():
+def test_job_starts_waiting():
+    """New jobs are WAITING until a plan action places them."""
     j = Job(user_id="usr_abc", kind=JobKind.BATCH)
     assert j.job_id.startswith("job_")
-    assert j.status is JobStatus.SUBMITTED
-    assert j.input_source == {}
-    assert j.output_target == {}
-    assert j.completed_at is None
+    assert j.status is JobStatus.WAITING
+    assert j.finish_reason is None
+    assert j.finished_at is None
+
+
+def test_job_status_is_exactly_four_states():
+    assert {s.value for s in JobStatus} == {"waiting", "running", "paused", "finished"}
 
 
 def test_job_input_source_is_pointer_not_data():
@@ -92,164 +90,79 @@ def test_job_input_source_is_pointer_not_data():
 
 
 def test_extras_forbidden():
-    with pytest.raises(ValidationError):  # pydantic.ValidationError subclass
+    with pytest.raises(ValidationError):
         User(name="X", bogus_field="nope")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
-# Plan / PlanJob (DATA_ARCHITECTURE.md §5)
+# Plan + actions (DATA_ARCHITECTURE.md §5/§6)
 # ---------------------------------------------------------------------------
 
 
-def test_plan_carries_rationale_and_executable_plan():
-    d = Plan(
+def test_plan_carries_rationale_and_actions():
+    plan = Plan(
         user_id="usr_1",
         koi_version="koi-0.1",
-        rationale_json={"why": "demo"},
-        plan_json={"ranks": []},
-        slo_json={"target_throughput_tps": 1500},
-        required_throughput_tps=1500,
+        tick_rationale="cluster has spare H100 capacity; place job B",
+        actions=[
+            PlanAction(
+                job_id="job_b",
+                type=ActionType.PLACE,
+                ladder=[
+                    {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
+                    {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
+                ],
+                target_tps=1500,
+            ),
+            PlanAction(job_id="job_c", type=ActionType.KEEP),
+            PlanAction(job_id="job_d", type=ActionType.DEFER),
+            PlanAction(job_id="job_e", type=ActionType.PREEMPT),
+            PlanAction(job_id="job_f", type=ActionType.SWAP, ladder=[{"gpu": "A100"}]),
+        ],
     )
-    assert d.plan_id.startswith("plan_")
-    assert d.koi_version == "koi-0.1"
-    assert d.rationale_json == {"why": "demo"}
-    assert d.plan_json == {"ranks": []}
-    assert d.slo_json["target_throughput_tps"] == 1500
-    assert d.required_throughput_tps == 1500
+    assert plan.plan_id.startswith("plan_")
+    assert plan.status == "created"
+    assert plan.actions[0].type is ActionType.PLACE
+    assert plan.actions[0].ladder[0]["prefill"]["count"] == 8
+    assert plan.actions[1].ladder is None  # keep needs no ladder
 
 
-def test_plan_job_defaults():
-    plan_job = PlanJob(plan_id="plan_1", job_id="job_1", required_throughput_tps=500)
-    assert plan_job.priority == 0
-    assert plan_job.status == "admitted"
-
-
-# ---------------------------------------------------------------------------
-# Rank (DATA_ARCHITECTURE.md §5 notes + §6)
-# ---------------------------------------------------------------------------
-
-
-def test_pd_disaggregated_requires_pd_ratio():
-    """§5: pd_ratio NULL for aggregate; required for pd_disaggregated."""
-    with pytest.raises(ValidationError):
-        Rank(
-            plan_id="plan_1",
-            rank_index=0,
-            strategy=PlacementStrategy.PD_DISAGGREGATED,
-            pd_ratio=None,
-            sizing_json={"prefill": {}, "decode": {}},
-        )
-
-
-def test_aggregate_must_not_have_pd_ratio():
-    with pytest.raises(ValidationError):
-        Rank(
-            plan_id="plan_1",
-            rank_index=0,
-            strategy=PlacementStrategy.AGGREGATE,
-            pd_ratio=1.0,
-            sizing_json={"aggregate": {}},
-        )
-
-
-def test_pd_disaggregated_accepts_positive_ratio():
-    alt = Rank(
-        plan_id="plan_1",
-        rank_index=0,
-        strategy=PlacementStrategy.PD_DISAGGREGATED,
-        pd_ratio=2.0,
-        sizing_json={
-            "prefill": {"shape": {"hw": "H100", "tp": 2, "pp": 4}},
-            "decode": {
-                "shape": {"hw": "A100", "tp": 1, "pp": 1},
-                "target_chains": 3,
-                "estimated_throughput_tps_per_chain": 500,
-            },
-        },
-        estimated_throughput_tps=1500,
+def test_plan_actions_round_trip_through_json():
+    """actions_json is JSONB in Postgres; the typed list must survive."""
+    plan = Plan(
+        user_id="usr_1",
+        actions=[PlanAction(job_id="job_a", type=ActionType.PLACE, ladder=[{"gpu": "H100"}])],
     )
-    assert alt.pd_ratio == 2.0
-    assert alt.status is RankStatus.PENDING
+    restored = Plan.model_validate_json(plan.model_dump_json())
+    assert restored == plan
 
 
-def test_aggregate_rank_ok():
-    alt = Rank(
-        plan_id="plan_1",
-        rank_index=1,
-        strategy=PlacementStrategy.AGGREGATE,
-        pd_ratio=None,
-        sizing_json={
-            "aggregate": {
-                "shape": {"hw": "H100", "tp": 8, "pp": 1},
-                "target_chains": 8,
-                "estimated_throughput_tps_per_chain": 200,
-            }
-        },
-        estimated_throughput_tps=1600,
-    )
-    assert alt.rank_id.startswith("rank_")
-
-
-def test_pd_ratio_must_be_positive():
+def test_plan_action_rejects_unknown_type():
     with pytest.raises(ValidationError):
-        Rank(
-            plan_id="plan_1",
-            rank_index=0,
-            strategy=PlacementStrategy.PD_DISAGGREGATED,
-            pd_ratio=0,
-        )
-    with pytest.raises(ValidationError):
-        Rank(
-            plan_id="plan_1",
-            rank_index=0,
-            strategy=PlacementStrategy.PD_DISAGGREGATED,
-            pd_ratio=-1.0,
-        )
-
-
-def test_rank_must_be_non_negative():
-    with pytest.raises(ValidationError):
-        Rank(
-            plan_id="plan_1",
-            rank_index=-1,
-            strategy=PlacementStrategy.AGGREGATE,
-        )
+        PlanAction(job_id="job_a", type="explode")  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
-# Chain / Attempt / Outcome (DATA_ARCHITECTURE.md §5)
+# Chain (DATA_ARCHITECTURE.md §5)
 # ---------------------------------------------------------------------------
 
 
-def test_chain_accepts_all_three_roles():
-    """§5: role: prefill | decode | aggregate."""
+def test_chain_belongs_to_job_and_accepts_all_roles():
+    """Chains are job-scoped; role: prefill | decode | aggregate."""
     for role in (ChainRole.PREFILL, ChainRole.DECODE, ChainRole.AGGREGATE):
         c = Chain(
-            rank_id="rank_1",
+            job_id="job_1",
+            plan_id="plan_1",
             role=role,
-            shape_json={"hw": "H100"},
-            parallelism_json={"tp": 2, "pp": 4},
+            shape_json={"gpu": "H100", "count": 8, "tp": 2, "pp": 4},
         )
         assert c.role is role
-        assert c.status is ChainStatus.PENDING
+        assert c.status is ChainStatus.LAUNCHING
 
 
-def test_attempt_default_status_started():
-    a = Attempt(chain_id="chain_1")
-    assert a.attempt_id.startswith("att_")
-    assert a.status is AttemptStatus.STARTED
-    assert a.started_at.tzinfo is not None
-    assert a.ended_at is None
-
-
-def test_outcome_carries_metrics():
-    o = Outcome(
-        chain_id="chain_1",
-        status=OutcomeStatus.SUCCESS,
-        metrics_json={"realized_tps": 480, "ttft_ms": 215},
-    )
-    assert o.outcome_id.startswith("out_")
-    assert o.metrics_json["realized_tps"] == 480
+def test_chain_plan_id_is_optional_provenance():
+    c = Chain(job_id="job_1", role=ChainRole.AGGREGATE)
+    assert c.plan_id is None
 
 
 # ---------------------------------------------------------------------------

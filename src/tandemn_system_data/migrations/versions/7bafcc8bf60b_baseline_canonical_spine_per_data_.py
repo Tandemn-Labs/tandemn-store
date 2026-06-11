@@ -78,8 +78,9 @@ def upgrade() -> None:
         sa.Column("input_source", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("output_target", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("finish_reason", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("job_id"),
     )
@@ -91,10 +92,8 @@ def upgrade() -> None:
         sa.Column("plan_id", sa.Text(), nullable=False),
         sa.Column("user_id", sa.Text(), nullable=False),
         sa.Column("koi_version", sa.String(length=64), nullable=True),
-        sa.Column("rationale_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("plan_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("slo_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("required_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
+        sa.Column("tick_rationale", sa.Text(), nullable=False),
+        sa.Column("actions_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.user_id"], ondelete="CASCADE"),
@@ -104,97 +103,26 @@ def upgrade() -> None:
     op.create_index("ix_plans_user_created", "plans", ["user_id", "created_at"])
 
     op.create_table(
-        "plan_jobs",
-        sa.Column("plan_id", sa.Text(), nullable=False),
-        sa.Column("job_id", sa.Text(), nullable=False),
-        sa.Column("priority", sa.Integer(), nullable=False),
-        sa.Column("required_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("admitted_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["job_id"], ["jobs.job_id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["plan_id"], ["plans.plan_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("plan_id", "job_id"),
-    )
-    op.create_index("ix_plan_jobs_job", "plan_jobs", ["job_id"])
-    op.create_index("ix_plan_jobs_status", "plan_jobs", ["status"])
-
-    op.create_table(
-        "ranks",
-        sa.Column("rank_id", sa.Text(), nullable=False),
-        sa.Column("plan_id", sa.Text(), nullable=False),
-        sa.Column("rank_index", sa.Integer(), nullable=False),
-        sa.Column("strategy", sa.String(length=32), nullable=False),
-        sa.Column("pd_ratio", sa.Numeric(asdecimal=False), nullable=True),
-        sa.Column("sizing_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("estimated_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
-        sa.Column("realized_throughput_tps", sa.Numeric(asdecimal=False), nullable=True),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["plan_id"], ["plans.plan_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("rank_id"),
-    )
-    op.create_index(
-        "ix_ranks_plan_rank_index",
-        "ranks",
-        ["plan_id", "rank_index"],
-    )
-
-    op.create_table(
         "chains",
         sa.Column("chain_id", sa.Text(), nullable=False),
-        sa.Column("rank_id", sa.Text(), nullable=False),
+        sa.Column("job_id", sa.Text(), nullable=False),
+        sa.Column("plan_id", sa.Text(), nullable=True),
         sa.Column("role", sa.String(length=16), nullable=False),
         sa.Column("shape_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("parallelism_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("target_node", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["rank_id"], ["ranks.rank_id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["job_id"], ["jobs.job_id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("chain_id"),
     )
-    op.create_index("ix_chains_rank_role", "chains", ["rank_id", "role"])
+    op.create_index("ix_chains_job", "chains", ["job_id"])
     op.create_index("ix_chains_status", "chains", ["status"])
-
-    op.create_table(
-        "attempts",
-        sa.Column("attempt_id", sa.Text(), nullable=False),
-        sa.Column("chain_id", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("reason_code", sa.String(length=64), nullable=True),
-        sa.ForeignKeyConstraint(["chain_id"], ["chains.chain_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("attempt_id"),
-    )
-    op.create_index("ix_attempts_chain", "attempts", ["chain_id"])
-
-    op.create_table(
-        "outcomes",
-        sa.Column("outcome_id", sa.Text(), nullable=False),
-        sa.Column("chain_id", sa.Text(), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("reason_code", sa.String(length=64), nullable=True),
-        sa.Column("metrics_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["chain_id"], ["chains.chain_id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("outcome_id"),
-    )
-    op.create_index("ix_outcomes_chain", "outcomes", ["chain_id"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_outcomes_chain", table_name="outcomes")
-    op.drop_table("outcomes")
-    op.drop_index("ix_attempts_chain", table_name="attempts")
-    op.drop_table("attempts")
     op.drop_index("ix_chains_status", table_name="chains")
-    op.drop_index("ix_chains_rank_role", table_name="chains")
+    op.drop_index("ix_chains_job", table_name="chains")
     op.drop_table("chains")
-    op.drop_index("ix_ranks_plan_rank_index", table_name="ranks")
-    op.drop_table("ranks")
-    op.drop_index("ix_plan_jobs_status", table_name="plan_jobs")
-    op.drop_index("ix_plan_jobs_job", table_name="plan_jobs")
-    op.drop_table("plan_jobs")
     op.drop_index("ix_plans_user_created", table_name="plans")
     op.drop_index("ix_plans_status", table_name="plans")
     op.drop_table("plans")

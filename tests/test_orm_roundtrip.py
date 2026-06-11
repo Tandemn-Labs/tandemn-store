@@ -1,50 +1,39 @@
-"""Integration: create the spine in Postgres and round-trip a full canonical
-hierarchy end to end.
+"""Integration test: full canonical hierarchy through the Alembic
+migration path and back.
 
-Requires \\`make up\\` (docker-compose stack) to be running.
-
-Anchored to DATA_ARCHITECTURE.md \u00a74 (canonical hierarchy) and \u00a75 (schema).
+Requires Postgres (`make up`).
 """
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from tandemn_system_data.clients import PostgresClient
 from tandemn_system_data.db import (
     ALL_TABLES,
-    AttemptRow,
     Base,
     ChainRow,
     CredentialsRow,
     EventRow,
     JobRow,
-    OutcomeRow,
-    PlanJobRow,
     PlanRow,
-    RankRow,
     UserRow,
 )
 from tandemn_system_data.ids import (
-    new_attempt_id,
     new_chain_id,
     new_credentials_ref,
     new_event_id,
     new_job_id,
-    new_outcome_id,
+    new_koi_tick_id,
     new_plan_id,
-    new_rank_id,
     new_user_id,
 )
 
 pytestmark = pytest.mark.integration
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -56,13 +45,9 @@ def pg_client() -> PostgresClient:
 def _reset_schema(pg_client: PostgresClient):
     """Drop the spine and reapply the Alembic baseline before this module runs.
 
-    Module-scoped so all tests share one fresh schema. We go through Alembic
-    rather than create_all so the test exercises the same migration path
-    production will use.
+    We go through Alembic rather than create_all so the test exercises the
+    same migration path production will use.
     """
-    import subprocess
-    from pathlib import Path
-
     Base.metadata.drop_all(pg_client.engine)
     with pg_client.engine.begin() as conn:
         conn.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
@@ -78,11 +63,6 @@ def _reset_schema(pg_client: PostgresClient):
     # Leave the schema in place so a developer can inspect with psql.
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
 def test_all_tables_created(pg_client: PostgresClient):
     inspector_tables = set(Base.metadata.tables.keys())
     expected = {row.__tablename__ for row in ALL_TABLES}
@@ -90,25 +70,20 @@ def test_all_tables_created(pg_client: PostgresClient):
 
 
 def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
-    """Insert user → job → plan → plan_job → rank → chain →
-    attempt \u2192 outcome \u2192 event \u2192 credentials, then read them back.
-
-    Anchored to DATA_ARCHITECTURE.md \u00a74.
-    """
+    """Insert user → job → plan → chains → event → credentials, then
+    read them back. Anchored to DATA_ARCHITECTURE.md §4."""
     now = datetime.now(UTC)
 
     user_id = new_user_id()
     job_id = new_job_id()
+    tick_id = new_koi_tick_id()  # correlation only; no koi_ticks table
     plan_id = new_plan_id()
-    rank_id = new_rank_id()
-    chain_id = new_chain_id()
-    attempt_id = new_attempt_id()
-    outcome_id = new_outcome_id()
+    prefill_chain_id = new_chain_id()
+    decode_chain_id = new_chain_id()
     event_id = new_event_id()
     cred_ref = new_credentials_ref()
 
     with pg_client.begin() as s:
-        # User + user-scoped rows first.
         s.add(UserRow(user_id=user_id, name="Ventura", created_at=now))
         s.flush()
         s.add(
@@ -119,7 +94,7 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 spec_json={"model": "google/gemma-4-31B-it"},
                 input_source={"type": "s3", "uri": "s3://ventura/inputs/x.jsonl"},
                 output_target={"type": "s3", "uri": "s3://ventura/outputs/"},
-                status="submitted",
+                status="waiting",
                 created_at=now,
             )
         )
@@ -129,78 +104,46 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 plan_id=plan_id,
                 user_id=user_id,
                 koi_version="koi-0.1",
-                rationale_json={"why": "demo"},
-                plan_json={"ranks": []},
-                slo_json={"target_throughput_tps": 1500},
-                required_throughput_tps=1500,
-                status="created",
+                tick_rationale="spare H100 capacity; gang-place the PD pair",
+                actions_json=[
+                    {
+                        "job_id": job_id,
+                        "type": "place",
+                        "ladder": [
+                            {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
+                            {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
+                        ],
+                        "target_tps": 1500,
+                    }
+                ],
+                status="applied",
                 created_at=now,
             )
         )
-        s.flush()
-        s.add(
-            PlanJobRow(
-                plan_id=plan_id,
-                job_id=job_id,
-                priority=0,
-                required_throughput_tps=1500,
-                status="admitted",
-                admitted_at=now,
-            )
-        )
-        s.flush()
-        s.add(
-            RankRow(
-                rank_id=rank_id,
-                plan_id=plan_id,
-                rank_index=0,
-                strategy="pd_disaggregated",
-                pd_ratio=2.0,
-                sizing_json={
-                    "prefill": {"shape": {"hw": "H100", "tp": 2, "pp": 4}},
-                    "decode": {
-                        "shape": {"hw": "A100", "tp": 1, "pp": 1},
-                        "target_chains": 3,
-                        "estimated_throughput_tps_per_chain": 500,
-                    },
-                },
-                estimated_throughput_tps=1500,
-                realized_throughput_tps=None,
-                status="started",
-                created_at=now,
-            )
-        )
-        s.flush()
+        # Gang scheduling: prefill + decode chains launch together,
+        # both job-scoped, with plan provenance.
         s.add(
             ChainRow(
-                chain_id=chain_id,
-                rank_id=rank_id,
-                role="decode",
-                shape_json={"hw": "A100", "tp": 1, "pp": 1},
-                parallelism_json={"tp": 1, "pp": 1},
-                target_node="gpu-1",
+                chain_id=prefill_chain_id,
+                job_id=job_id,
+                plan_id=plan_id,
+                role="prefill",
+                shape_json={"gpu": "H100", "count": 8, "tp": 2, "pp": 4},
+                target_node="gpu-node-1",
                 status="running",
                 created_at=now,
             )
         )
-        s.flush()
         s.add(
-            AttemptRow(
-                attempt_id=attempt_id,
-                chain_id=chain_id,
-                status="completed",
-                started_at=now,
-                ended_at=now + timedelta(seconds=30),
-                reason_code=None,
-            )
-        )
-        s.add(
-            OutcomeRow(
-                outcome_id=outcome_id,
-                chain_id=chain_id,
-                status="success",
-                metrics_json={"realized_tps": 480, "ttft_ms": 215},
-                created_at=now + timedelta(seconds=31),
+            ChainRow(
+                chain_id=decode_chain_id,
+                job_id=job_id,
+                plan_id=plan_id,
+                role="decode",
+                shape_json={"gpu": "A100", "count": 8, "tp": 1, "pp": 1},
+                target_node="gpu-node-2",
+                status="running",
+                created_at=now,
             )
         )
         s.add(
@@ -208,14 +151,10 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
                 event_id=event_id,
                 user_id=user_id,
                 job_id=job_id,
-                chain_id=chain_id,
-                type="outcome.recorded",
-                payload_json={
-                    "outcome_id": outcome_id,
-                    "chain_id": chain_id,
-                    "status": "success",
-                },
-                created_at=now + timedelta(seconds=32),
+                chain_id=decode_chain_id,
+                type="chain.launched",
+                payload_json={"chain_id": decode_chain_id, "job_id": job_id, "role": "decode"},
+                created_at=now,
             )
         )
         s.add(
@@ -234,49 +173,42 @@ def test_full_canonical_hierarchy_roundtrip(pg_client: PostgresClient):
         j = s.get(JobRow, job_id)
         assert j is not None
         assert j.user_id == user_id
+        assert j.status == "waiting"
+        assert j.finish_reason is None
         assert j.input_source["uri"].startswith("s3://")
 
-        d = s.get(PlanRow, plan_id)
-        assert d is not None and d.user_id == user_id and d.plan_id == plan_id
+        p = s.get(PlanRow, plan_id)
+        assert p is not None and p.user_id == user_id
+        assert p.actions_json[0]["type"] == "place"
+        assert p.actions_json[0]["ladder"][0]["prefill"]["count"] == 8
+        assert tick_id  # correlation string exists; no table to join
 
-        alt = s.get(RankRow, rank_id)
-        assert alt is not None
-        assert alt.strategy == "pd_disaggregated"
-        assert float(alt.pd_ratio) == 2.0
-        assert alt.sizing_json["decode"]["target_chains"] == 3
-
-        c = s.get(ChainRow, chain_id)
-        assert c is not None
-        assert c.role == "decode"
-        assert c.shape_json["hw"] == "A100"
-
-        a = s.get(AttemptRow, attempt_id)
-        assert a is not None and a.status == "completed"
-
-        o = s.get(OutcomeRow, outcome_id)
-        assert o is not None and o.metrics_json["realized_tps"] == 480
+        pf = s.get(ChainRow, prefill_chain_id)
+        dc = s.get(ChainRow, decode_chain_id)
+        assert pf.job_id == dc.job_id == job_id
+        assert pf.plan_id == dc.plan_id == plan_id
+        assert {pf.role, dc.role} == {"prefill", "decode"}
+        assert dc.shape_json["gpu"] == "A100"
 
         ev = s.get(EventRow, event_id)
-        assert ev is not None and ev.type == "outcome.recorded"
+        assert ev is not None and ev.type == "chain.launched"
 
         cred = s.get(CredentialsRow, cred_ref)
         assert cred is not None and cred.expires_at > now
-        assert d.plan_json == {"ranks": []}
-        assert d.slo_json["target_throughput_tps"] == 1500
 
 
-def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
-    """At the DB layer, pd_ratio is nullable. The Pydantic layer enforces
-    the semantic rule (aggregate => NULL). This test just exercises the
-    column's storage shape."""
+def test_job_cascade_deletes_chains_but_not_events(pg_client: PostgresClient):
+    """chains FK CASCADE from jobs; events survive (audit log, no FK)."""
     now = datetime.now(UTC)
-    user_id = new_user_id()
-    job_id = new_job_id()
-    plan_id = new_plan_id()
-    rank_id = new_rank_id()
+    user_id, job_id, chain_id, event_id = (
+        new_user_id(),
+        new_job_id(),
+        new_chain_id(),
+        new_event_id(),
+    )
 
     with pg_client.begin() as s:
-        s.add(UserRow(user_id=user_id, name="aggregate-test", created_at=now))
+        s.add(UserRow(user_id=user_id, name="cascade", created_at=now))
         s.flush()
         s.add(
             JobRow(
@@ -286,56 +218,36 @@ def test_pd_ratio_can_be_null_for_aggregate(pg_client: PostgresClient):
                 spec_json={},
                 input_source={},
                 output_target={},
-                status="submitted",
+                status="running",
                 created_at=now,
             )
         )
         s.flush()
         s.add(
-            PlanRow(
-                plan_id=plan_id,
-                user_id=user_id,
-                plan_json={},
-                slo_json={},
-                rationale_json={},
-                status="created",
-                created_at=now,
-            )
-        )
-        s.flush()
-        s.add(
-            PlanJobRow(
-                plan_id=plan_id,
+            ChainRow(
+                chain_id=chain_id,
                 job_id=job_id,
-                priority=0,
-                status="admitted",
-                admitted_at=now,
+                role="aggregate",
+                shape_json={},
+                status="running",
+                created_at=now,
             )
         )
-        s.flush()
         s.add(
-            RankRow(
-                rank_id=rank_id,
-                plan_id=plan_id,
-                rank_index=0,
-                strategy="aggregate",
-                pd_ratio=None,
-                sizing_json={
-                    "aggregate": {
-                        "shape": {"hw": "H100", "tp": 8, "pp": 1},
-                        "target_chains": 8,
-                        "estimated_throughput_tps_per_chain": 200,
-                    }
-                },
-                estimated_throughput_tps=1600,
-                realized_throughput_tps=None,
-                status="pending",
+            EventRow(
+                event_id=event_id,
+                user_id=user_id,
+                job_id=job_id,
+                chain_id=chain_id,
+                type="chain.launched",
+                payload_json={},
                 created_at=now,
             )
         )
 
+    with pg_client.begin() as s:
+        s.delete(s.get(JobRow, job_id))
+
     with pg_client.session() as s:
-        alt = s.get(RankRow, rank_id)
-        assert alt is not None
-        assert alt.pd_ratio is None
-        assert alt.sizing_json["aggregate"]["target_chains"] == 8
+        assert s.get(ChainRow, chain_id) is None  # cascaded
+        assert s.get(EventRow, event_id) is not None  # audit log survives

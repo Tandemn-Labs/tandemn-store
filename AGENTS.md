@@ -22,10 +22,10 @@ This file is for coding agents working in `tandemn-store`. Keep it lean: this re
 
 - Pydantic models, SQLAlchemy ORM, Alembic migrations, `DATABASE.md`, and `DATA_ARCHITECTURE.md` must stay in sync.
 - Any ORM schema change requires an Alembic migration and an `alembic check` pass.
-- The current canonical hierarchy is: `user -> plan -> rank -> chain -> attempt/outcome/event`, with `plan_jobs` joining plans to jobs. Koi ticks are events (`tick.started`/`tick.completed`), not a table; do not re-add `koi_ticks`.
+- The canonical spine is exactly: `users`, `jobs`, `plans`, `chains`, `events`(+offsets), `credentials`. Chains are job-scoped. Job statuses are exactly `waiting | running | paused | finished` (`finish_reason` NULL = success). Koi ticks, attempts, and outcomes are events, not tables; do not re-add `koi_ticks`, `ranks`, `plan_jobs`, `attempts`, or `outcomes`.
 - The resource map is NOT a Postgres table. It is Orca's in-memory state; this repo ships only the `ResourceMap` wire contract. Do not re-add a `resource_maps` table.
-- `plans` are multi-job Koi scheduler plans. They contain rationale (`rationale_json`, `koi_version`), executable placement (`plan_json`, `slo_json`), and required throughput. Do not reintroduce a separate `decisions` table unless explicitly requested.
-- Use Postgres JSONB for schemaless-but-attached state (`plan_json`, `sizing_json`, `metrics_json`, `input_source`, `output_target`). Do not add Mongo/Dynamo just for hierarchical blobs.
+- `plans` are one Koi pass's decision: `tick_rationale` plus `actions_json` (per-job `place|keep|defer|preempt|swap`, ladders with expected TPS inside). No throughput columns in the database; no traversal in the MVP (placements gang-launch their chains). Do not reintroduce a separate `decisions` table unless explicitly requested.
+- Use Postgres JSONB for schemaless-but-attached state (`actions_json`, `spec_json`, `shape_json`, `input_source`, `output_target`). Do not add Mongo/Dynamo just for hierarchical blobs.
 
 ## Control Plane / Data Plane Boundary
 

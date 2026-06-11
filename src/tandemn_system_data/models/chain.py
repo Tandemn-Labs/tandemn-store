@@ -1,13 +1,12 @@
-"""Chain model — DATA_ARCHITECTURE.md §5.
+"""Chain model — one launched serving unit.
 
-A chain is one launched serving unit tagged with:
-  - rank_id: which rank owns it
-  - role: prefill | decode | aggregate (§5)
-  - shape_json: copied from the alternative's sizing at launch
-  - parallelism_json: e.g. {"tp": 2, "pp": 4}
+Chains belong to a JOB (plan actions are per-job, so chains are not
+shared). plan_id records which plan placed the chain — provenance only,
+no FK, so plans and chains have independent lifecycles.
 
-Per §5 notes, prefill and decode chains in the same rank MAY have
-different hardware. The schema does not couple them.
+shape_json carries everything about the hardware and parallelism, e.g.
+{"gpu": "H100", "count": 8, "tp": 2, "pp": 4}. Prefill and decode
+chains of the same job may have different shapes.
 """
 
 from __future__ import annotations
@@ -24,10 +23,10 @@ from tandemn_system_data.models.enums import ChainRole, ChainStatus
 
 class Chain(CanonicalModel):
     chain_id: str = Field(default_factory=new_chain_id)
-    rank_id: str
+    job_id: str
+    plan_id: str | None = None
     role: ChainRole
     shape_json: dict[str, Any] = Field(default_factory=dict)
-    parallelism_json: dict[str, Any] = Field(default_factory=dict)
     target_node: str | None = None
-    status: ChainStatus = ChainStatus.PENDING
+    status: ChainStatus = ChainStatus.LAUNCHING
     created_at: datetime = Field(default_factory=utc_now)

@@ -2,6 +2,12 @@
 
 Events are Postgres rows. Writers append to the `events` table; consumers
 read by cursor from `event_consumer_offsets` and are idempotent on `event_id`.
+
+Catalog matches the MVP lifecycle:
+  jobs    waiting -> running <-> paused -> finished
+  plans   created -> applied
+  chains  launching -> running -> stopped | failed
+  ticks   correlation events only (no koi_ticks table)
 """
 
 from __future__ import annotations
@@ -11,48 +17,38 @@ from typing import Any, Literal
 from pydantic import Field
 
 from tandemn_system_data.models._base import CanonicalModel
-from tandemn_system_data.models.enums import ChainRole, JobStatus, OutcomeStatus, RankStatus
+from tandemn_system_data.models.enums import ActionType, ChainRole
 
 EventType = Literal[
     "job.submitted",
-    "job.completed",
-    "job.failed",
+    "job.placed",
+    "job.paused",
+    "job.resumed",
+    "job.finished",
     "tick.started",
     "tick.completed",
     "plan.created",
-    "plan.throughput_met",
-    "plan.exhausted",
-    "rank.started",
-    "rank.realized",
-    "rank.completed",
-    "rank.failed",
-    "job_group.assembled",
-    "chain.attempt_started",
+    "plan.applied",
+    "chain.launched",
+    "chain.running",
+    "chain.stopped",
     "chain.failed",
-    "chain.completed",
-    "ratio.violated",
-    "outcome.recorded",
 ]
 
 ALL_EVENT_TYPES: tuple[str, ...] = (
     "job.submitted",
-    "job.completed",
-    "job.failed",
+    "job.placed",
+    "job.paused",
+    "job.resumed",
+    "job.finished",
     "tick.started",
     "tick.completed",
     "plan.created",
-    "plan.throughput_met",
-    "plan.exhausted",
-    "rank.started",
-    "rank.realized",
-    "rank.completed",
-    "rank.failed",
-    "job_group.assembled",
-    "chain.attempt_started",
+    "plan.applied",
+    "chain.launched",
+    "chain.running",
+    "chain.stopped",
     "chain.failed",
-    "chain.completed",
-    "ratio.violated",
-    "outcome.recorded",
 )
 
 
@@ -65,20 +61,40 @@ class JobSubmittedPayload(_PayloadBase):
     user_id: str
 
 
-class JobCompletedPayload(_PayloadBase):
+class JobPlacedPayload(_PayloadBase):
+    """A plan action moved the job waiting -> running."""
+
     job_id: str
     user_id: str
-    final_status: JobStatus = JobStatus.COMPLETED
+    plan_id: str
 
 
-class JobFailedPayload(_PayloadBase):
+class JobPausedPayload(_PayloadBase):
+    """A plan action preempted the job (running -> paused)."""
+
     job_id: str
     user_id: str
-    reason_code: str
+    plan_id: str | None = None
+
+
+class JobResumedPayload(_PayloadBase):
+    """A plan action placed a paused job back (paused -> running)."""
+
+    job_id: str
+    user_id: str
+    plan_id: str | None = None
+
+
+class JobFinishedPayload(_PayloadBase):
+    job_id: str
+    user_id: str
+    # NULL/None = success; a reason code (FAILED, CANCELLED, ...) otherwise.
+    finish_reason: str | None = None
     detail: str | None = None
 
 
 class TickStartedPayload(_PayloadBase):
+    # tick_id is a correlation ID only; ticks are not entities.
     tick_id: str
     user_id: str
     waiting_job_count: int = 0
@@ -88,107 +104,65 @@ class TickStartedPayload(_PayloadBase):
 class TickCompletedPayload(_PayloadBase):
     tick_id: str
     user_id: str
+    plan_id: str | None = None  # None when the tick produced no plan
 
 
 class PlanCreatedPayload(_PayloadBase):
     plan_id: str
     user_id: str
-    # Correlation to the tick.started/tick.completed events of the pass
-    # that produced this plan; ticks are not entities.
     tick_id: str | None = None
-    job_ids: list[str]
+    # job_id -> action type, mirrors actions_json for cheap filtering.
+    actions: dict[str, ActionType]
 
 
-class PlanThroughputMetPayload(_PayloadBase):
+class PlanAppliedPayload(_PayloadBase):
     plan_id: str
-    achieved_throughput_tps: float
-    required_throughput_tps: float
+    user_id: str
 
 
-class PlanExhaustedPayload(_PayloadBase):
-    plan_id: str
-    achieved_throughput_tps: float
-    required_throughput_tps: float
-
-
-class RankEventPayload(_PayloadBase):
-    plan_id: str
-    rank_id: str
-    rank_index: int
-    status: RankStatus | None = None
-
-
-class RankRealizedPayload(_PayloadBase):
-    plan_id: str
-    rank_id: str
-    rank_index: int
-    estimated_throughput_tps: float | None = None
-    realized_throughput_tps: float
-    cumulative_realized_throughput_tps: float
-
-
-class JobGroupAssembledPayload(_PayloadBase):
-    plan_id: str
-    achieved_throughput_tps: float
-    required_throughput_tps: float
-    chain_ids: list[str]
-
-
-class ChainAttemptStartedPayload(_PayloadBase):
+class ChainLaunchedPayload(_PayloadBase):
     chain_id: str
-    attempt_id: str
-    rank_id: str
+    job_id: str
+    plan_id: str | None = None
     role: ChainRole
+    shape_json: dict[str, Any] = Field(default_factory=dict)
     target_node: str | None = None
+
+
+class ChainRunningPayload(_PayloadBase):
+    chain_id: str
+    job_id: str
+
+
+class ChainStoppedPayload(_PayloadBase):
+    """Torn down on purpose: job finished, preempted, or swapped."""
+
+    chain_id: str
+    job_id: str
+    reason_code: str | None = None
 
 
 class ChainFailedPayload(_PayloadBase):
     chain_id: str
-    attempt_id: str | None = None
+    job_id: str
     reason_code: str
     detail: str | None = None
 
 
-class ChainCompletedPayload(_PayloadBase):
-    chain_id: str
-    attempt_id: str | None = None
-    metrics_json: dict[str, Any] = Field(default_factory=dict)
-
-
-class RatioViolatedPayload(_PayloadBase):
-    rank_id: str
-    expected_pd_ratio: float
-    realized_pd_ratio: float
-    realized_prefill_chains: int
-    realized_decode_chains: int
-
-
-class OutcomeRecordedPayload(_PayloadBase):
-    outcome_id: str
-    chain_id: str
-    status: OutcomeStatus
-    reason_code: str | None = None
-
-
 PAYLOAD_REGISTRY: dict[str, type[_PayloadBase]] = {
     "job.submitted": JobSubmittedPayload,
-    "job.completed": JobCompletedPayload,
-    "job.failed": JobFailedPayload,
+    "job.placed": JobPlacedPayload,
+    "job.paused": JobPausedPayload,
+    "job.resumed": JobResumedPayload,
+    "job.finished": JobFinishedPayload,
     "tick.started": TickStartedPayload,
     "tick.completed": TickCompletedPayload,
     "plan.created": PlanCreatedPayload,
-    "plan.throughput_met": PlanThroughputMetPayload,
-    "plan.exhausted": PlanExhaustedPayload,
-    "rank.started": RankEventPayload,
-    "rank.realized": RankRealizedPayload,
-    "rank.completed": RankEventPayload,
-    "rank.failed": RankEventPayload,
-    "job_group.assembled": JobGroupAssembledPayload,
-    "chain.attempt_started": ChainAttemptStartedPayload,
+    "plan.applied": PlanAppliedPayload,
+    "chain.launched": ChainLaunchedPayload,
+    "chain.running": ChainRunningPayload,
+    "chain.stopped": ChainStoppedPayload,
     "chain.failed": ChainFailedPayload,
-    "chain.completed": ChainCompletedPayload,
-    "ratio.violated": RatioViolatedPayload,
-    "outcome.recorded": OutcomeRecordedPayload,
 }
 
 
@@ -208,22 +182,19 @@ def validate_payload(event_type: str, payload: dict[str, Any]) -> _PayloadBase:
 
 __all__ = [
     "ALL_EVENT_TYPES",
-    "ChainAttemptStartedPayload",
-    "ChainCompletedPayload",
-    "ChainFailedPayload",
-    "EventType",
-    "JobCompletedPayload",
-    "JobFailedPayload",
-    "JobGroupAssembledPayload",
-    "JobSubmittedPayload",
-    "OutcomeRecordedPayload",
     "PAYLOAD_REGISTRY",
+    "ChainFailedPayload",
+    "ChainLaunchedPayload",
+    "ChainRunningPayload",
+    "ChainStoppedPayload",
+    "EventType",
+    "JobFinishedPayload",
+    "JobPausedPayload",
+    "JobPlacedPayload",
+    "JobResumedPayload",
+    "JobSubmittedPayload",
+    "PlanAppliedPayload",
     "PlanCreatedPayload",
-    "PlanExhaustedPayload",
-    "PlanThroughputMetPayload",
-    "RankEventPayload",
-    "RankRealizedPayload",
-    "RatioViolatedPayload",
     "TickCompletedPayload",
     "TickStartedPayload",
     "payload_model_for",

@@ -46,7 +46,7 @@ class S3BlobClient:
         )
 
     @property
-    def client(self):  # noqa: ANN201 — boto3 client type is opaque
+    def client(self):
         return self._client
 
     def ensure_bucket(self) -> None:

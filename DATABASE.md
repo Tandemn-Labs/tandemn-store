@@ -16,18 +16,10 @@ beyond timestamps and statuses. JSONB columns are flagged with `(jsonb)`.
 ```mermaid
 erDiagram
     users ||--o{ jobs            : "owns"
-    users ||--o{ credentials     : "owns"
     users ||--o{ plans           : "schedules"
+    users ||--o{ credentials     : "owns"
 
-    plans ||--o{ plan_jobs       : "includes"
-    jobs ||--o{ plan_jobs        : "admitted"
-
-    plans ||--o{ ranks  : "contains"
-
-    ranks ||--o{ chains : "launches"
-
-    chains ||--o{ attempts  : "has"
-    chains ||--o{ outcomes  : "produces"
+    jobs ||--o{ chains           : "served by"
     event_consumer_offsets ||--o{ events : "cursor into"
 
     users {
@@ -43,71 +35,30 @@ erDiagram
       JSONB spec_json
       JSONB input_source
       JSONB output_target
-      VARCHAR status
+      VARCHAR status "waiting | running | paused | finished"
+      VARCHAR finish_reason "NULL = success"
       TIMESTAMPTZ created_at
-      TIMESTAMPTZ completed_at "nullable"
+      TIMESTAMPTZ finished_at "nullable"
     }
 
     plans {
       TEXT plan_id PK
       TEXT user_id FK
       VARCHAR koi_version "nullable"
-      JSONB rationale_json
-      JSONB plan_json
-      JSONB slo_json
-      NUMERIC required_throughput_tps "nullable"
-      VARCHAR status
-      TIMESTAMPTZ created_at
-    }
-
-    plan_jobs {
-      TEXT plan_id PK, FK
-      TEXT job_id PK, FK
-      INT priority
-      NUMERIC required_throughput_tps "nullable"
-      VARCHAR status
-      TIMESTAMPTZ admitted_at
-    }
-
-    ranks {
-      TEXT rank_id PK
-      TEXT plan_id FK
-      INT rank_index
-      VARCHAR strategy "pd_disaggregated | aggregate"
-      NUMERIC pd_ratio "NULL for aggregate"
-      JSONB sizing_json
-      NUMERIC estimated_throughput_tps "nullable"
-      NUMERIC realized_throughput_tps "nullable"
-      VARCHAR status
+      TEXT tick_rationale
+      JSONB actions_json "per-job place/keep/defer/preempt/swap"
+      VARCHAR status "created | applied"
       TIMESTAMPTZ created_at
     }
 
     chains {
       TEXT chain_id PK
-      TEXT rank_id FK
+      TEXT job_id FK
+      TEXT plan_id "provenance, no FK"
       VARCHAR role "prefill | decode | aggregate"
-      JSONB shape_json
-      JSONB parallelism_json
+      JSONB shape_json "gpu, count, tp, pp"
       TEXT target_node "nullable"
-      VARCHAR status
-      TIMESTAMPTZ created_at
-    }
-
-    attempts {
-      TEXT attempt_id PK
-      TEXT chain_id FK
-      VARCHAR status
-      TIMESTAMPTZ started_at
-      TIMESTAMPTZ ended_at "nullable"
-      VARCHAR reason_code "nullable"
-    }
-
-    outcomes {
-      TEXT outcome_id PK
-      TEXT chain_id FK
-      VARCHAR status
-      VARCHAR reason_code "nullable"
-      JSONB metrics_json
+      VARCHAR status "launching | running | stopped | failed"
       TIMESTAMPTZ created_at
     }
 
@@ -138,6 +89,15 @@ erDiagram
     }
 ```
 
+Not tables, on purpose:
+
+- **resource map** — Orca's in-memory state (`ResourceMap` wire contract);
+  updated when jobs reserve/release capacity, never by polling clouds.
+- **koi ticks** — `tick.started` / `tick.completed` events; `tick_id` is a
+  correlation string.
+- **ranks / ladders** — live inside `plans.actions_json`; no traversal in
+  the MVP, Orca gang-launches what a placement describes.
+
 ---
 
 ## Foreign-key map
@@ -145,18 +105,15 @@ erDiagram
 The same graph in text, useful for grep and for non-Mermaid renderers.
 
 ```
-users(user_id)               ← jobs.user_id                    CASCADE
-users(user_id)                   ← credentials.user_id             CASCADE
-users(user_id)                   ← plans.user_id                   CASCADE
+users(user_id)   ← jobs.user_id          CASCADE
+users(user_id)   ← plans.user_id         CASCADE
+users(user_id)   ← credentials.user_id   CASCADE
 
-plans(plan_id)                   ← plan_jobs.plan_id               CASCADE
-jobs(job_id)                     ← plan_jobs.job_id                CASCADE
-plans(plan_id)                   ← ranks.plan_id                   CASCADE
-
-ranks(rank_id)   ← chains.rank_id             CASCADE
-chains(chain_id)                 ← attempts.chain_id                 CASCADE
-chains(chain_id)                 ← outcomes.chain_id                 CASCADE
+jobs(job_id)     ← chains.job_id         CASCADE
 ```
+
+`chains.plan_id` is provenance only (no FK): plans and chains have
+independent lifecycles.
 
 `events` deliberately has **no** foreign keys to `jobs` / `chains` /
 `users` — the audit log must survive cascade deletes of upstream rows.
@@ -167,16 +124,13 @@ only after successful processing.
 
 ## Read it in one sentence
 
-> A **user** submits **jobs**; each Koi tick considers waiting/running
-> jobs and produces a multi-job **plan**. The plan carries both Koi's
-> rationale and the executable placement plan. That plan contains ordered
-> **ranks** (with
-> `pd_ratio` for PD-disaggregated, NULL for
-> aggregate); each rank launches **chains** (with role
-> prefill / decode / aggregate); each chain has **attempts** and produces
-> **outcomes**; every state change emits an **event** into the durable
-> audit log; **credentials** are short-lived, scoped secrets the worker
-> resolves at fetch time.
+> A **user** submits **jobs** (status `waiting`); each Koi pass produces a
+> **plan** — a rationale plus per-job actions (`place`, `keep`, `defer`,
+> `preempt`, `swap`); Orca applies the actions, gang-launching the
+> **chains** a placement describes (prefill + decode together for PD);
+> every state change emits an **event** into the durable audit log;
+> **credentials** are short-lived, scoped secrets the worker resolves at
+> fetch time.
 
 ---
 
@@ -186,11 +140,7 @@ Defined in `tandemn_system_data/db/orm.py`:
 
 - `jobs`: (user_id, created_at); (status)
 - `plans`: (user_id, created_at); (status)
-- `plan_jobs`: (job_id); (status)
-- `ranks`: (plan_id, rank_index) — the natural order for deployment traversal
-- `chains`: (rank_id, role); (status)
-- `attempts`: (chain_id)
-- `outcomes`: (chain_id)
+- `chains`: (job_id); (status)
 - `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
 - `event_consumer_offsets`: primary key on `consumer_name`
 - `credentials`: (user_id); (expires_at)

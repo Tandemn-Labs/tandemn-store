@@ -11,35 +11,31 @@ from pydantic import ValidationError
 from tandemn_system_data.events import (
     ALL_EVENT_TYPES,
     PAYLOAD_REGISTRY,
-    ChainAttemptStartedPayload,
+    ChainLaunchedPayload,
+    JobFinishedPayload,
     JobSubmittedPayload,
-    RankEventPayload,
+    PlanCreatedPayload,
     payload_model_for,
     validate_payload,
 )
-from tandemn_system_data.models import ChainRole, Event, RankStatus
+from tandemn_system_data.models import ActionType, ChainRole, Event
 
 # The exact event types listed in DATA_ARCHITECTURE.md §9.
 # If §9 changes, this list MUST change in lockstep.
 _DOC_EVENT_TYPES = {
     "job.submitted",
-    "job.completed",
-    "job.failed",
+    "job.placed",
+    "job.paused",
+    "job.resumed",
+    "job.finished",
     "tick.started",
     "tick.completed",
     "plan.created",
-    "plan.throughput_met",
-    "plan.exhausted",
-    "rank.started",
-    "rank.realized",
-    "rank.completed",
-    "rank.failed",
-    "job_group.assembled",
-    "chain.attempt_started",
+    "plan.applied",
+    "chain.launched",
+    "chain.running",
+    "chain.stopped",
     "chain.failed",
-    "chain.completed",
-    "ratio.violated",
-    "outcome.recorded",
 }
 
 
@@ -61,16 +57,17 @@ def test_payload_model_for_rejects_unknown_type():
 
 def test_validate_payload_accepts_correct_shape():
     payload = validate_payload(
-        "chain.attempt_started",
+        "chain.launched",
         {
             "chain_id": "chain_1",
-            "attempt_id": "att_1",
-            "rank_id": "rank_1",
+            "job_id": "job_1",
+            "plan_id": "plan_1",
             "role": "decode",
+            "shape_json": {"gpu": "A100", "count": 8},
             "target_node": "gpu-3",
         },
     )
-    assert isinstance(payload, ChainAttemptStartedPayload)
+    assert isinstance(payload, ChainLaunchedPayload)
     assert payload.role is ChainRole.DECODE
 
 
@@ -88,21 +85,25 @@ def test_validate_payload_rejects_extras():
         )
 
 
-def test_rank_lifecycle_events_share_one_payload_shape():
-    """§9: rank.started/completed/failed share one payload shape."""
-    common = {
-        "plan_id": "plan_1",
-        "rank_id": "rank_1",
-        "rank_index": 0,
-        "status": RankStatus.STARTED,
-    }
-    for event_type in (
-        "rank.started",
-        "rank.completed",
-        "rank.failed",
-    ):
-        payload = validate_payload(event_type, common)
-        assert isinstance(payload, RankEventPayload)
+def test_job_finished_distinguishes_success_from_failure():
+    ok = JobFinishedPayload(job_id="job_1", user_id="usr_1")
+    failed = JobFinishedPayload(job_id="job_2", user_id="usr_1", finish_reason="FAILED")
+    assert ok.finish_reason is None
+    assert failed.finish_reason == "FAILED"
+
+
+def test_plan_created_mirrors_actions():
+    payload = validate_payload(
+        "plan.created",
+        {
+            "plan_id": "plan_1",
+            "user_id": "usr_1",
+            "tick_id": "tick_01ABC",
+            "actions": {"job_a": "place", "job_b": "defer", "job_c": "preempt"},
+        },
+    )
+    assert isinstance(payload, PlanCreatedPayload)
+    assert payload.actions["job_a"] is ActionType.PLACE
 
 
 def test_event_envelope_carries_typed_payload_as_dict():

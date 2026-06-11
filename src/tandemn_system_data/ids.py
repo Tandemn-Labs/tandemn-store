@@ -2,7 +2,7 @@
 
 ID format:  <prefix>_<26-char Crockford-base32 ULID>
 Examples:   job_01JBM2YQYZ1KQ9C8GZP1XB6V5T
-            rank_01JBM30YQ7X3WQAR6HF8C2Q9T8
+            chain_01JBM30YQ7X3WQAR6HF8C2Q9T8
 
 ULIDs are:
   - 26 chars, Crockford base32, URL-safe
@@ -31,12 +31,9 @@ Kind = Literal[
     "job",
     "koi_tick",
     "plan",
-    "rank",
     "chain",
     "chunk",
-    "attempt",
     "event",
-    "outcome",
     "credentials",
     "theory",  # reserved; not used in MVP
 ]
@@ -46,12 +43,9 @@ PREFIXES: dict[Kind, str] = {
     "job": "job",
     "koi_tick": "tick",
     "plan": "plan",
-    "rank": "rank",
     "chain": "chain",
     "chunk": "chunk",
-    "attempt": "att",
     "event": "evt",
-    "outcome": "out",
     "credentials": "cred",
     "theory": "thry",
 }
@@ -98,10 +92,6 @@ def new_plan_id() -> str:
     return new_id("plan")
 
 
-def new_rank_id() -> str:
-    return new_id("rank")
-
-
 def new_chain_id() -> str:
     return new_id("chain")
 
@@ -110,16 +100,8 @@ def new_chunk_id() -> str:
     return new_id("chunk")
 
 
-def new_attempt_id() -> str:
-    return new_id("attempt")
-
-
 def new_event_id() -> str:
     return new_id("event")
-
-
-def new_outcome_id() -> str:
-    return new_id("outcome")
 
 
 def new_credentials_ref() -> str:

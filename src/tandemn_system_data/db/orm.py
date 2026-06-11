@@ -8,7 +8,6 @@ Conventions:
   - JSONB everywhere structure is intentionally schemaless.
   - All timestamps are TIMESTAMPTZ (tz-aware).
   - Foreign keys mirror the canonical hierarchy in §4.
-  - GIN indexes on heavy JSONB columns per the §5 note.
 """
 
 from __future__ import annotations
@@ -17,13 +16,10 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger,  # noqa: F401  — reserved for future use
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     LargeBinary,
-    Numeric,
     String,
     Text,
 )
@@ -65,9 +61,12 @@ class JobRow(Base):
     # §5: input_source / output_target are JSONB pointers, NEVER the data itself.
     input_source: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     output_target: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    # waiting | running | paused | finished
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    # NULL = success; reason code (FAILED, CANCELLED, ...) otherwise.
+    finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_jobs_user_created", "user_id", "created_at"),
@@ -88,12 +87,10 @@ class PlanRow(Base):
         Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     koi_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    rationale_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    plan_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    slo_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    required_throughput_tps: Mapped[float | None] = mapped_column(
-        Numeric(asdecimal=False), nullable=True
-    )
+    tick_rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # List of per-job actions (place/keep/defer/preempt/swap); ladders
+    # with expected TPS live inside — there is no ranks table.
+    actions_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -101,62 +98,6 @@ class PlanRow(Base):
         Index("ix_plans_user_created", "user_id", "created_at"),
         Index("ix_plans_status", "status"),
     )
-
-
-# ---------------------------------------------------------------------------
-# §5: plan_jobs
-# ---------------------------------------------------------------------------
-
-
-class PlanJobRow(Base):
-    __tablename__ = "plan_jobs"
-
-    plan_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), primary_key=True
-    )
-    job_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), primary_key=True
-    )
-    priority: Mapped[int] = mapped_column(Integer, nullable=False)
-    required_throughput_tps: Mapped[float | None] = mapped_column(
-        Numeric(asdecimal=False), nullable=True
-    )
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    admitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (
-        Index("ix_plan_jobs_job", "job_id"),
-        Index("ix_plan_jobs_status", "status"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# §5 + §6: ranks
-# ---------------------------------------------------------------------------
-
-
-class RankRow(Base):
-    __tablename__ = "ranks"
-
-    rank_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    plan_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("plans.plan_id", ondelete="CASCADE"), nullable=False
-    )
-    rank_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    strategy: Mapped[str] = mapped_column(String(32), nullable=False)
-    # §5: pd_ratio NULL for aggregate; > 0 for pd_disaggregated.
-    pd_ratio: Mapped[float | None] = mapped_column(Numeric(asdecimal=False), nullable=True)
-    sizing_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    estimated_throughput_tps: Mapped[float | None] = mapped_column(
-        Numeric(asdecimal=False), nullable=True
-    )
-    realized_throughput_tps: Mapped[float | None] = mapped_column(
-        Numeric(asdecimal=False), nullable=True
-    )
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (Index("ix_ranks_plan_rank_index", "plan_id", "rank_index"),)
 
 
 # ---------------------------------------------------------------------------
@@ -168,66 +109,27 @@ class ChainRow(Base):
     __tablename__ = "chains"
 
     chain_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    rank_id: Mapped[str] = mapped_column(
-        Text,
-        ForeignKey("ranks.rank_id", ondelete="CASCADE"),
-        nullable=False,
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
     )
+    # Provenance only (which plan placed this chain); no FK so plans and
+    # chains have independent lifecycles.
+    plan_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Hardware + parallelism: {"gpu": "H100", "count": 8, "tp": 2, "pp": 4}
     shape_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    parallelism_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     target_node: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_chains_rank_role", "rank_id", "role"),
+        Index("ix_chains_job", "job_id"),
         Index("ix_chains_status", "status"),
     )
 
 
 # ---------------------------------------------------------------------------
-# §5: attempts
-# ---------------------------------------------------------------------------
-
-
-class AttemptRow(Base):
-    __tablename__ = "attempts"
-
-    attempt_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    chain_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("chains.chain_id", ondelete="CASCADE"), nullable=False
-    )
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
-    __table_args__ = (Index("ix_attempts_chain", "chain_id"),)
-
-
-# ---------------------------------------------------------------------------
-# §5: outcomes
-# ---------------------------------------------------------------------------
-
-
-class OutcomeRow(Base):
-    __tablename__ = "outcomes"
-
-    outcome_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    chain_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("chains.chain_id", ondelete="CASCADE"), nullable=False
-    )
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (Index("ix_outcomes_chain", "chain_id"),)
-
-
-# ---------------------------------------------------------------------------
-# §5: events (durable audit log; §8: CP record alongside AP delivery)
+# §5: events (durable audit log + MVP delivery path)
 # ---------------------------------------------------------------------------
 
 
@@ -295,11 +197,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
     JobRow,
     PlanRow,
-    PlanJobRow,
-    RankRow,
     ChainRow,
-    AttemptRow,
-    OutcomeRow,
     EventRow,
     EventConsumerOffsetRow,
     CredentialsRow,

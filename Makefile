@@ -1,5 +1,6 @@
-.PHONY: help up down logs ps install test test-integration lint format clean \
-        migrate migrate-down migrate-check migrate-new contracts
+.PHONY: help up down logs ps install precommit-install precommit-run test \
+        test-integration lint format clean migrate migrate-down migrate-check \
+        migrate-new contracts
 
 help:
 	@echo "tandemn-store dev targets:"
@@ -8,6 +9,8 @@ help:
 	@echo "  make logs                follow stack logs"
 	@echo "  make ps                  show stack status"
 	@echo "  make install             create venv and install deps via uv"
+	@echo "  make precommit-install   install pre-commit git hooks"
+	@echo "  make precommit-run       run pre-commit hooks on all files"
 	@echo "  make test                run unit tests (no infra required)"
 	@echo "  make test-integration    run integration tests (requires \`make up\`)"
 	@echo "  make migrate             alembic upgrade head"
@@ -35,6 +38,12 @@ ps:
 
 install:
 	uv sync --extra dev
+
+precommit-install:
+	uv run pre-commit install
+
+precommit-run:
+	uv run pre-commit run --all-files
 
 test:
 	uv run pytest -m "not integration"

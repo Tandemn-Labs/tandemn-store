@@ -25,7 +25,7 @@ class LocalFileConnector:
     def index(
         self,
         source_spec: dict[str, Any],
-        creds: Any | None = None,  # noqa: ARG002
+        creds: Any | None = None,
     ) -> Iterator[PayloadRef]:
         path = Path(source_spec["uri"])
         chunk_size = int(source_spec.get("chunk_size_lines", DEFAULT_CHUNK_SIZE_LINES))
@@ -54,7 +54,7 @@ class LocalFileConnector:
     def read(
         self,
         payload_ref: PayloadRef,
-        creds: Any | None = None,  # noqa: ARG002
+        creds: Any | None = None,
     ) -> Iterator[NormalizedRecord]:
         path = Path(payload_ref.uri)
         start, end = payload_ref.byte_range or (0, os.path.getsize(path))
@@ -70,7 +70,7 @@ class LocalFileConnector:
         self,
         output_ref: OutputRef,
         records: Iterable[NormalizedRecord],
-        creds: Any | None = None,  # noqa: ARG002
+        creds: Any | None = None,
     ) -> int:
         path = Path(output_ref.uri)
         path.parent.mkdir(parents=True, exist_ok=True)

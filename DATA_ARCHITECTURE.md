@@ -96,22 +96,19 @@ needs them.**
 
 ```
 user_id
-  └── job_id
-  └── plan_id            (multi-job scheduler plan, produced by a Koi pass)
-        └── plan_job     (jobs admitted into this plan)
-        └── rank_id      (ordered deployable capacity unit)
-              └── chain_id             (role: prefill | decode | aggregate)
-                    └── attempt_id
-                          └── event_id
+  └── job_id             (waiting | running | paused | finished)
+  │     └── chain_id     (role: prefill | decode | aggregate)
+  └── plan_id            (rationale + per-job actions, produced by a Koi pass)
 ```
 
-A Koi scheduler pass ("tick") is **not an entity**: tick.started /
-tick.completed events record that Koi ran, and what it saw lives in the
-plan's `rationale_json`.
+Everything else is an **event**, not an entity:
 
-A `job_group` is the **derived** union of running chains across ranks whose
-cumulative decode-side throughput meets the plan's required throughput. Never
-stored; always queried.
+- A Koi scheduler pass ("tick") is recorded as tick.started /
+  tick.completed events; `tick_id` is a correlation string.
+- Chain launch attempts and outcomes are chain.* and job.* events.
+- Ladders (ordered rank configs with expected TPS) live inside the
+  plan's `actions_json` — there is no ranks table and no traversal in
+  the MVP.
 
 ---
 
@@ -122,12 +119,7 @@ erDiagram
     users ||--o{ jobs : has
     users ||--o{ credentials : owns
     users ||--o{ plans : schedules
-    plans ||--o{ plan_jobs : includes
-    jobs ||--o{ plan_jobs : admitted
-    plans ||--o{ ranks : contains
-    ranks ||--o{ chains : launches
-    chains ||--o{ attempts : has
-    chains ||--o{ outcomes : produces
+    jobs ||--o{ chains : "served by"
     jobs ||--o{ events : emits
     chains ||--o{ events : emits
     event_consumer_offsets ||--o{ events : tracks
@@ -145,55 +137,24 @@ erDiagram
       jsonb input_source
       jsonb output_target
       text status
+      text finish_reason
     }
     plans {
       text plan_id PK
       text user_id FK
       text koi_version
-      jsonb rationale_json
-      jsonb plan_json
-      jsonb slo_json
-      numeric required_throughput_tps
-      text status
-    }
-    plan_jobs {
-      text plan_id FK
-      text job_id FK
-      int priority
-      numeric required_throughput_tps
-      text status
-      timestamptz admitted_at
-    }
-    ranks {
-      text rank_id PK
-      text plan_id FK
-      int rank_index
-      text strategy
-      numeric pd_ratio
-      jsonb sizing_json
-      numeric estimated_throughput_tps
-      numeric realized_throughput_tps
+      text tick_rationale
+      jsonb actions_json
       text status
     }
     chains {
       text chain_id PK
-      text rank_id FK
+      text job_id FK
+      text plan_id
       text role
       jsonb shape_json
-      jsonb parallelism_json
       text target_node
       text status
-    }
-    attempts {
-      text attempt_id PK
-      text chain_id FK
-      text status
-      text reason_code
-    }
-    outcomes {
-      text outcome_id PK
-      text chain_id FK
-      jsonb metrics_json
     }
     events {
       text event_id PK
@@ -221,73 +182,69 @@ Key column notes:
 
 - `jobs.input_source` and `jobs.output_target` are JSONB. They describe
   *where* user data lives, never the data itself.
-- A `plan` is a multi-job scheduler plan produced by one Koi pass
-  (roughly every 100 seconds). It contains Koi's rationale and executable
-  rank structure (`plan_json` + `slo_json`). The pass itself is recorded
-  as tick.started / tick.completed events, not a table; what Koi saw
-  (job counts, resource map version) goes in `rationale_json`.
-- `plan_jobs` is the join table that records which jobs were admitted into a
-  plan and what throughput/priority each contributed.
-- `ranks.pd_ratio` is `prefill_per_decode`
-  (e.g. `2.0` = 2 prefill chains per 1 decode chain). `NULL` for `aggregate`.
-- `ranks.sizing_json` carries `{prefill: {shape}, decode: {shape, target_chains, est_tps_per_chain}}` (or `{aggregate: {...}}`).
-  Prefill has no throughput field — SLO is decode-side only.
-- `chains.shape_json` is copied from the rank's sizing at launch.
-  Prefill and decode chains in the same rank may have different hardware.
-- `chain_groups` is intentionally **not** a table. With one shape per role per rank, group-level info collapses into `sizing_json`.
+- `jobs.status` is exactly `waiting | running | paused | finished`. New
+  jobs start `waiting`. `finish_reason` is NULL on success, a reason
+  code (FAILED, CANCELLED, ...) otherwise.
+- A `plan` is one Koi pass's decision: a cluster-wide `tick_rationale`
+  plus `actions_json`, a list of per-job actions
+  (`place | keep | defer | preempt | swap`). Ladders — ordered rank
+  configs with expected TPS — live inside the actions, not in tables.
+  What Koi saw (job counts, resource map version) belongs in the
+  rationale.
+- `chains.job_id`: chains are job-scoped (plan actions are per-job).
+  `chains.plan_id` is provenance only, no FK.
+- `chains.shape_json` carries hardware and parallelism together:
+  `{"gpu": "H100", "count": 8, "tp": 2, "pp": 4}`. Prefill and decode
+  chains of the same job may have different shapes.
 - `credentials.secret_payload` is encrypted at rest. Workers never read this table directly.
 - `event_consumer_offsets` tracks each consumer's cursor into the Postgres
   event log. Consumers update their cursor only after successful processing.
 
 ---
 
-## 6. Koi Ticks and Rank Traversal
+## 6. Koi Passes and Plan Actions
 
-Koi runs a scheduler tick roughly every 100 seconds. Each tick looks at:
+Koi runs a scheduler pass roughly every 100 seconds. Each pass looks at:
 
-- waiting jobs
-- running jobs
-- recent outcomes
+- waiting jobs and running jobs (Postgres, via `JobStore`: running jobs
+  carry the active chains serving them)
+- paused jobs (preempted; candidates to resume)
 - the current resource map (Orca's live in-memory view, read via GET /resource-map)
 
-Waiting and running jobs come from Postgres through `JobStore`
-(`tandemn_system_data.clients`): waiting = `submitted`; running =
-`launching` + `running`, each with the active chains serving it. The
-resource map is **not** a Postgres table: Orca's reconciler is its
-single writer, holds it in process memory, and serves versioned
-snapshots (`ResourceMap` in `tandemn_system_data.models`) so readers
-can detect staleness. If Orca goes multi-replica, the map moves to a
-Postgres JSONB row with the same shape.
+The resource map is **not** a Postgres table and is **not** refreshed by
+polling cloud providers. For the MVP it reflects the capacity
+reservations the user already holds; Orca updates it when a job
+reserves or releases resources (place / preempt / swap / finish).
+Orca's reconciler is its single writer; it serves versioned snapshots
+(`ResourceMap`) so readers can detect staleness. If Orca goes
+multi-replica, the map moves to a Postgres JSONB row with the same shape.
 
-It produces one multi-job `plan` with ordered `ranks`. A rank is a deployable
-capacity unit, such as `DP4 of 8xH100`. Orca deploys ranks in order and checks
-realized cumulative throughput after each rank. It keeps deploying ranks until
-the plan's required throughput is met or all ranks are exhausted.
+The pass produces one `plan`: a cluster-wide rationale plus one action
+per job it considered:
 
-```mermaid
-flowchart TD
-    T[Koi tick: waiting + running + outcomes] --> P[Plan: required throughput = 10000 tps]
-    P --> J1[plan_job: job_1]
-    P --> J2[plan_job: job_2]
-    P --> R0[rank 0: aggregate DP4 of 8xH100]
-    P --> R1[rank 1: aggregate DP2 of 4xA100]
-    P --> R2[rank 2: PD, pd_ratio=2.0]
-    R2 --> PF[prefill: H100 8xTP=2 PP=4]
-    R2 --> DC[decode: A100 4xTP=1 PP=1]
+```jsonc
+{
+  "tick_rationale": "<1-3 paragraph cluster-wide reasoning>",
+  "actions": [
+    {"job_id": "B", "type": "place",                 // waiting -> running
+     "ladder": [{"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
+                 {"decode":  {"gpu": "A100", "count": 8, "chains": 1}}],
+     "target_tps": 1500},
+    {"job_id": "C", "type": "keep"},                 // stay running
+    {"job_id": "D", "type": "defer"},                // stay waiting
+    {"job_id": "E", "type": "preempt"},              // running -> paused
+    {"job_id": "F", "type": "swap",                  // relaunch elsewhere
+     "ladder": [...]}
+  ]
+}
 ```
 
-Orca's `placement_executor`:
-
-1. Read ranks in `rank_index` order.
-2. Deploy the next rank.
-3. Measure realized decode/aggregate throughput from the rank's chains.
-4. Add realized throughput to the plan total.
-5. If cumulative throughput meets required throughput, stop and emit `plan.throughput_met`.
-6. If not, deploy the next rank.
-7. If all ranks are exhausted, emit `plan.exhausted`.
-
-**Throughput math is decode-side only.** Prefill chains exist to feed decode,
-not to count toward the SLO sum.
+Orca applies the actions — **no traversal in the MVP**. A placement is
+gang-scheduled: if Koi says 2 prefill chains on 8xH100 and 1 decode
+chain on 8xA100, Orca launches all of it at once and records one
+job-scoped chain row per launched chain. Expected TPS lives inside the
+ladder JSON for Koi's own bookkeeping; the database stores no
+throughput numbers.
 
 ---
 
@@ -318,7 +275,7 @@ sequenceDiagram
     Worker->>Worker: vLLM generate
     Worker->>Lake: write outputs
     Worker->>Orca: chunk complete/status callback
-    Orca->>Postgres: persist outcome, mark job done
+    Orca->>Postgres: INSERT event job.finished, mark job finished
 ```
 
 Two type-level constructs:
@@ -346,9 +303,8 @@ They share state through the spine and notify each other through events.
 ```mermaid
 flowchart LR
     Koi -- writes plans --> PG[(Postgres)]
-    Orca -- writes jobs/chains/attempts --> PG
-    Orca -- writes outcomes --> PG
-    Koi -- reads chains/outcomes --> PG
+    Orca -- writes jobs/chains --> PG
+    Koi -- reads jobs/chains --> PG
 
     Orca -- INSERT events --> PG
     Koi -- polls events cursor --> PG
@@ -395,16 +351,14 @@ canonical events, for any client that still posts to them.
 ## 9. Event Catalog (MVP)
 
 ```
-job.submitted          job.completed          job.failed
-tick.started           tick.completed
-plan.created           plan.throughput_met       plan.exhausted
-rank.started           rank.realized             rank.completed
-rank.failed
-job_group.assembled
-chain.attempt_started  chain.failed          chain.completed
-ratio.violated
-outcome.recorded
+job.submitted    job.placed      job.paused     job.resumed    job.finished
+tick.started     tick.completed
+plan.created     plan.applied
+chain.launched   chain.running   chain.stopped  chain.failed
 ```
+
+`job.finished` carries `finish_reason` (None = success). Launch
+attempts and outcomes are events, not tables.
 
 Each event carries the canonical IDs (`user_id`, `job_id`,
 `chain_id?`) plus a typed payload. Consumers are idempotent on
@@ -422,7 +376,7 @@ Resources** into running pods (vLLM workers).
 ```mermaid
 flowchart LR
     Koi -- /decide --> Orca
-    Orca -- writes plan + ranks + chains --> PG[(Postgres)]
+    Orca -- writes plan + chains --> PG[(Postgres)]
     Orca -- apply CRDs --> K8s
     K8s -- schedules pods --> Nodes[GPU Nodes]
     Operator[td_operator in cluster] -- watches CRDs --> K8s
@@ -434,11 +388,11 @@ flowchart LR
 What changes:
 
 - **Launching mechanism.** Orca no longer calls SkyPilot. It writes a `TandemnChain` (or `TandemnLaunchGroup`) CRD per chain into the target cluster's API server. `td_operator` reconciles those into pods.
-- **Failure detection.** Operator watches pod state and reports back via the same `chain.attempt_started` / `chain.failed` / `chain.completed` events. The watchdog logic moves out of Orca and into the operator for k8s-managed chains.
+- **Failure detection.** Operator watches pod state and reports back via the same `chain.launched` / `chain.running` / `chain.failed` / `chain.stopped` events. The watchdog logic moves out of Orca and into the operator for k8s-managed chains.
 
 What does **not** change:
 
-- **Canonical data model.** `chains`, `ranks`, `attempts`, `outcomes`, `events`, `credentials` — all unchanged. A `chain_id` is still the row in Postgres; the CRD references it by name.
+- **Canonical data model.** `jobs`, `plans`, `chains`, `events`, `credentials` — all unchanged. A `chain_id` is still the row in Postgres; the CRD references it by name.
 - **The two libraries.** `tandemn_system_data` and `tandemn_user_data` are identical. The operator imports `tandemn_user_data` to fetch user data on the worker side, same as the SkyPilot workers do today.
 - **User data path.** Workers (now pods) still fetch directly from the user's data lake via `payload_ref` + `credentials_ref`. The kubelet doesn't see customer credentials; the pod resolves them at fetch time.
 - **Event flow.** Postgres events still carry placement and chain events. Whether the chain runs in a VM (SkyPilot) or a pod (k8s) is invisible to consumers.
@@ -455,6 +409,8 @@ of "make the chain real."
 
 These are deliberately deferred:
 
+- Rank traversal / throughput-driven deployment. Placements are
+  gang-launched; expected TPS lives in plan JSON for Koi's bookkeeping only.
 - TSDB for time-series metrics (Prometheus counters suffice for now).
 - Vector DB / pgvector for theories.
 - Multi-region store and full RBAC.
@@ -474,7 +430,7 @@ Each is additive. None require schema changes.
 - Redis KV may hold the hot chunk queue when we need distributed worker coordination.
 - S3/MinIO holds Tandemn-owned blobs only. User data stays in the user's systems.
 - Two libraries: `tandemn_system_data` for canonical state, `tandemn_user_data` for user payloads. Workers see only the second.
-- Placement is ordered fallback alternatives; SLO arithmetic is decode-side; prefill is ratio-driven, not throughput-counted.
+- Plans are rationale + per-job actions (place/keep/defer/preempt/swap); placements gang-launch their chains; no traversal and no throughput columns in the MVP.
 - The Kubernetes migration replaces SkyPilot with `td_operator` + CRDs without touching the data model.
 
 This is the contract. Code that respects it composes; code that breaks

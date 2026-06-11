@@ -10,32 +10,24 @@ from __future__ import annotations
 
 from tandemn_system_data.db.orm import (
     ALL_TABLES,
-    AttemptRow,
     Base,
     ChainRow,
     CredentialsRow,
     EventConsumerOffsetRow,
     EventRow,
     JobRow,
-    OutcomeRow,
-    PlanJobRow,
     PlanRow,
-    RankRow,
     UserRow,
 )
 
 __all__ = [
     "ALL_TABLES",
-    "AttemptRow",
     "Base",
     "ChainRow",
     "CredentialsRow",
     "EventConsumerOffsetRow",
-    "PlanRow",
     "EventRow",
     "JobRow",
-    "OutcomeRow",
-    "PlanJobRow",
-    "RankRow",
+    "PlanRow",
     "UserRow",
 ]
