@@ -22,9 +22,8 @@ from ulid import ULID
 # ---------------------------------------------------------------------------
 # Prefix registry
 # ---------------------------------------------------------------------------
-# Canonical entities defined in DATA_ARCHITECTURE.md §5 plus the `theory`
-# prefix reserved for the deferred Vector DB work in §11. Reserving the
-# prefix now avoids a future schema migration when theories become real.
+# Canonical entities defined in DATA_ARCHITECTURE.md §5, plus `koi_tick`
+# as an event-correlation prefix (ticks are not entities).
 
 Kind = Literal[
     "user",
@@ -32,10 +31,8 @@ Kind = Literal[
     "koi_tick",
     "plan",
     "chain",
-    "chunk",
     "event",
     "credentials",
-    "theory",  # reserved; not used in MVP
 ]
 
 PREFIXES: dict[Kind, str] = {
@@ -44,10 +41,8 @@ PREFIXES: dict[Kind, str] = {
     "koi_tick": "tick",
     "plan": "plan",
     "chain": "chain",
-    "chunk": "chunk",
     "event": "evt",
     "credentials": "cred",
-    "theory": "thry",
 }
 
 
@@ -70,8 +65,7 @@ def new_id(kind: Kind) -> str:
     return f"{PREFIXES[kind]}_{ULID()}"
 
 
-# Convenience helpers — one per entity that has a Pydantic/ORM model in MVP.
-# `theory` is intentionally omitted; it is reserved-prefix-only for now.
+# Convenience helpers — one per canonical ID kind.
 
 
 def new_user_id() -> str:
@@ -94,10 +88,6 @@ def new_plan_id() -> str:
 
 def new_chain_id() -> str:
     return new_id("chain")
-
-
-def new_chunk_id() -> str:
-    return new_id("chunk")
 
 
 def new_event_id() -> str:

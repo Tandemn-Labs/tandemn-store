@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import inspect
 
-from tandemn_system_data.clients import JobStore, PostgresClient, PostgresEventLog
+from tandemn_system_data.clients import JobStore, PlanStore, PostgresClient, PostgresEventLog
 from tandemn_system_data.db import ALL_TABLES, ChainRow, EventRow, JobRow, PlanRow, UserRow
 from tandemn_system_data.ids import (
     new_chain_id,
@@ -18,7 +18,18 @@ from tandemn_system_data.ids import (
     new_plan_id,
     new_user_id,
 )
-from tandemn_system_data.models import Event, Job, JobKind, JobStatus
+from tandemn_system_data.models import (
+    ActionType,
+    Chain,
+    ChainRole,
+    ChainStatus,
+    Event,
+    Job,
+    JobKind,
+    JobStatus,
+    Plan,
+    PlanAction,
+)
 from tests.conftest import REPO_ROOT
 
 pytestmark = pytest.mark.integration
@@ -193,6 +204,65 @@ def test_koi_reads_waiting_and_running_with_chains(
     assert waiting.job_id in {j.job_id for j in store.waiting_jobs(user_id)}
     mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == running.job_id)
     assert [c.chain_id for c in mine.chains] == [live]  # failed chain excluded
+
+
+# ----- PlanStore + chain helpers (the Koi -> Orca handoff) --------------------
+
+
+def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient, user_id: str):
+    """Koi writes a plan; Orca reads it unapplied, gang-launches the
+    chains, transitions the job, and marks the plan applied (CAS)."""
+    plans = PlanStore(pg_client)
+    job = store.submit(Job(user_id=user_id, kind=JobKind.BATCH))
+
+    plan = plans.create(
+        Plan(
+            user_id=user_id,
+            tick_rationale="capacity available; place the PD pair",
+            actions=[
+                PlanAction(
+                    job_id=job.job_id,
+                    type=ActionType.PLACE,
+                    ladder=[
+                        {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
+                        {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
+                    ],
+                    target_tps=1500,
+                )
+            ],
+        )
+    )
+
+    # Orca's side: poll, apply, mark applied.
+    pending = plans.unapplied(user_id)
+    assert plan.plan_id in {p.plan_id for p in pending}
+    fetched = next(p for p in pending if p.plan_id == plan.plan_id)
+    assert fetched.actions[0].type is ActionType.PLACE
+    assert fetched.actions[0].ladder[0]["prefill"]["count"] == 8
+
+    launched = store.launch_chains(
+        [
+            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.PREFILL),
+            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.PREFILL),
+            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.DECODE),
+        ]
+    )
+    store.transition(job.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
+
+    assert plans.mark_applied(plan.plan_id) is True
+    assert plans.mark_applied(plan.plan_id) is False  # CAS: already applied
+    assert plans.unapplied(user_id) == []
+    assert plans.get(plan.plan_id).status == "applied"
+
+    # Chain status CAS: launching -> running; wrong expectation fails.
+    chain_id = launched[0].chain_id
+    assert store.set_chain_status(chain_id, ChainStatus.RUNNING, [ChainStatus.LAUNCHING]) is True
+    assert store.set_chain_status(chain_id, ChainStatus.RUNNING, [ChainStatus.LAUNCHING]) is False
+
+    # The Koi read path sees the gang: 3 chains on the running job.
+    mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == job.job_id)
+    assert len(mine.chains) == 3
+    assert {c.role for c in mine.chains} == {ChainRole.PREFILL, ChainRole.DECODE}
 
 
 # ----- Event log --------------------------------------------------------------

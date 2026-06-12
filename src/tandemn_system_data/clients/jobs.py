@@ -24,6 +24,7 @@ from sqlalchemy import select, update
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.db.orm import ChainRow, JobRow
 from tandemn_system_data.models._base import utc_now
+from tandemn_system_data.models.chain import Chain
 from tandemn_system_data.models.enums import ChainRole, ChainStatus, JobStatus
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
 
@@ -71,6 +72,32 @@ class JobStore:
                 .values(**values)
             )
             # Session.execute(update()) always returns a CursorResult.
+            return result.rowcount == 1  # type: ignore[attr-defined]
+
+    # ----- chains (Orca applies plan actions) ------------------------------
+
+    def launch_chains(self, chains: list[Chain]) -> list[Chain]:
+        """Gang launch: insert every chain of a placement in one
+        transaction (all or nothing)."""
+        with self._client.begin() as s:
+            for chain in chains:
+                s.add(ChainRow(**chain.model_dump()))
+        return chains
+
+    def set_chain_status(
+        self,
+        chain_id: str,
+        to: ChainStatus,
+        expected: Iterable[ChainStatus],
+    ) -> bool:
+        """Compare-and-set chain status change, same semantics as
+        transition()."""
+        with self._client.begin() as s:
+            result = s.execute(
+                update(ChainRow)
+                .where(ChainRow.chain_id == chain_id, ChainRow.status.in_(list(expected)))
+                .values(status=to)
+            )
             return result.rowcount == 1  # type: ignore[attr-defined]
 
     # ----- reads (Koi tick + lookups) --------------------------------------

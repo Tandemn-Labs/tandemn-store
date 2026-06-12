@@ -56,7 +56,7 @@ flowchart LR
 ### `tandemn_system_data` — canonical state
 
 Owns: Postgres models, SQLAlchemy ORM, Alembic migrations, event log,
-IDs, event envelope, Tandemn-owned S3 blob client.
+IDs, event envelope.
 
 Imported by **Orca and Koi only**. Workers never import it.
 
@@ -83,7 +83,7 @@ Each substrate has one job and is chosen for what it's good at.
 | Postgres           | Canonical spine. All entity rows, audit log.    | CP         |
 | Postgres events    | Durable event log and consumer cursors.         | CP         |
 | Redis KV           | Deferred (Phase 2): hot chunk queue for distributed workers. | AP      |
-| S3 / MinIO         | Blobs: Tandemn-owned artifacts; staging.        | AP + strong RAW |
+| S3 / MinIO         | Deferred: Tandemn-owned artifacts; staging.     | AP + strong RAW |
 | User data systems  | Source/sink for inference inputs and outputs.   | n/a (theirs)|
 
 The mental model: **truth and events live in Postgres; bytes live in S3
@@ -239,10 +239,15 @@ per job it considered:
 }
 ```
 
+The handoff goes through `PlanStore` (`tandemn_system_data.clients`):
+Koi `create`s the plan; Orca polls `unapplied`, applies the actions,
+and `mark_applied`s it (compare-and-set, so a plan is applied once).
+
 Orca applies the actions — **no traversal in the MVP**. A placement is
 gang-scheduled: if Koi says 2 prefill chains on 8xH100 and 1 decode
-chain on 8xA100, Orca launches all of it at once and records one
-job-scoped chain row per launched chain. Expected TPS lives inside the
+chain on 8xA100, Orca launches all of it at once
+(`JobStore.launch_chains`, one transaction) and records one job-scoped
+chain row per launched chain. Expected TPS lives inside the
 ladder JSON for Koi's own bookkeeping; the database stores no
 throughput numbers.
 

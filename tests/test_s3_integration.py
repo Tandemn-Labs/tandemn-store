@@ -1,5 +1,5 @@
-"""Integration: S3Connector and S3BlobClient against MinIO (the
-S3-compatible test double). Requires `make up`."""
+"""Integration: S3Connector against MinIO (the S3-compatible test
+double). Requires `make up`."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import boto3
 import pytest
 from botocore.client import Config
 
-from tandemn_system_data.clients import S3BlobClient
 from tandemn_user_data.connectors import S3Connector
 from tandemn_user_data.core import NormalizedRecord, OutputRef, PayloadRef
 
@@ -58,14 +57,6 @@ def _openai_row(input_id: str, prompt: str) -> dict:
         "url": "/v1/chat/completions",
         "body": {"model": "Qwen/Qwen3-0.6B", "messages": [{"role": "user", "content": prompt}]},
     }
-
-
-def test_blob_client_ping_and_bucket():
-    """S3BlobClient is for Tandemn-owned blobs only."""
-    client = S3BlobClient()
-    assert client.ping() is True
-    client.ensure_bucket()
-    client.ensure_bucket()  # idempotent
 
 
 def test_connector_full_round_trip(bucket: str):

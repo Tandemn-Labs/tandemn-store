@@ -41,7 +41,7 @@ Current repo: tandemn-labs/tandemn-store
 ### Project identity
 
 - Two packages with different responsibilities:
-  - `tandemn_system_data`: control-plane state for Orca and Koi (Postgres spine, Alembic, Postgres event log, internal blobs, credentials store/server, JobStore, resource map contract).
+  - `tandemn_system_data`: control-plane state for Orca and Koi (Postgres spine, Alembic, Postgres event log, credentials store/server, JobStore, resource map contract).
   - `tandemn_user_data`: data-plane payload movement for Orca, workers, and CLI (PayloadRef, OutputRef, NormalizedRecord, connectors, worker fetch/write path).
 - Keep the package boundary strict: `tandemn_user_data` must never import `tandemn_system_data`. CI enforces this with `import-linter`.
 - The source-of-truth architecture is in `DATA_ARCHITECTURE.md` at the repo root; update it when changing the contract.
@@ -59,7 +59,7 @@ Current repo: tandemn-labs/tandemn-store
 
 - User data bytes must not transit Orca or Postgres. Orca handles metadata and pointers only.
 - Future chunk queues carry metadata (`payload_ref`, `output_ref`, `chain_id`) and leases/retries, not prompt bytes.
-- `S3BlobClient` is for Tandemn-owned internal blobs only. User data sources go through `tandemn_user_data.connectors`.
+- There is no Tandemn-owned blob client in the MVP. User data sources go through `tandemn_user_data.connectors`; re-add an internal blob client only when something stores Tandemn-owned artifacts.
 - Workers use `tandemn_user_data` only. They fetch bytes directly from user data systems and resolve scoped credentials at fetch time.
 - Avoid connector sprawl. Add a new connector only when needed; keep provider-specific code isolated under `tandemn_user_data/connectors/`.
 

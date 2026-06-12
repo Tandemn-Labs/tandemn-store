@@ -4,7 +4,7 @@ Canonical data layer for Tandemn (Orca + Koi + workers).
 
 Ships two packages:
 
-- **`tandemn_system_data`** — canonical state (Postgres spine, Postgres event log, Tandemn-owned S3 blobs, credentials store/server). Imported by **Orca and Koi only**.
+- **`tandemn_system_data`** — canonical state (Postgres spine, Postgres event log, credentials store/server). Imported by **Orca and Koi only**.
 - **`tandemn_user_data`** — user payloads in motion (connectors, credential resolver, `PayloadRef` / `OutputRef` / `NormalizedRecord`). Imported by **Orca, workers, and CLI**.
 
 The architecture and rationale live in [`DATA_ARCHITECTURE.md`](./DATA_ARCHITECTURE.md).
@@ -17,10 +17,10 @@ The architecture and rationale live in [`DATA_ARCHITECTURE.md`](./DATA_ARCHITECT
 - Canonical IDs (`ids.py`), Pydantic models, typed event payload registry (`events.py`)
 - SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5 + Alembic migrations
 - `PostgresClient`, `PostgresEventLog` (append events, read by cursor, `event_consumer_offsets`)
-- `JobStore` — Orca writes (submit, CAS status transitions), Koi reads (waiting/running jobs + active chains)
+- `JobStore` — Orca writes (submit, CAS status transitions, gang chain launch), Koi reads (waiting/running jobs + active chains)
+- `PlanStore` — the Koi → Orca handoff: Koi `create`s a plan, Orca polls `unapplied` and `mark_applied`s (CAS)
 - `ResourceMap` — wire contract only; the live map is an in-memory variable in Orca (single writer, versioned snapshots), not a table
 - `CredentialStore` + `/credentials/<ref>` FastAPI app behind a worker bearer token
-- `S3BlobClient` for Tandemn-owned blobs (never user data)
 
 **`tandemn_user_data`**
 - `PayloadRef` / `OutputRef` / `NormalizedRecord` core types
@@ -72,7 +72,7 @@ Ports are non-default to avoid clashing with developer-local installs.
 MinIO exists only as the S3-compatible test double; production targets
 real S3. CI must never require AWS.
 
-Override via env vars: `TANDEMN_POSTGRES_URL`, `TANDEMN_S3_ENDPOINT`, `TANDEMN_S3_ACCESS_KEY`, `TANDEMN_S3_SECRET_KEY`, `TANDEMN_S3_BUCKET`.
+Override via env vars: `TANDEMN_POSTGRES_URL`.
 
 ---
 

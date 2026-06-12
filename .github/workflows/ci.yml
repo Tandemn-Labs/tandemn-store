@@ -62,7 +62,6 @@ jobs:
           --health-cmd "pg_isready -U tandemn" --health-interval 5s --health-retries 10
     env:
       TANDEMN_POSTGRES_URL: postgresql+psycopg://tandemn:tandemn@localhost:55432/tandemn
-      TANDEMN_S3_ENDPOINT: http://localhost:59000
 
     steps:
       - uses: actions/checkout@v4
