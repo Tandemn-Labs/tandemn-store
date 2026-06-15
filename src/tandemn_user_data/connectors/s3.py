@@ -1,8 +1,7 @@
 """S3Connector — JSONL on user S3 buckets / MinIO (type "s3").
 
-Handles USER buckets only. Tandemn-owned blobs go through
-tandemn_system_data.clients.S3BlobClient; the two must stay separate
-because this package runs on customer GPU nodes.
+Handles user buckets only. This package runs on customer GPU nodes and
+must not import tandemn_system_data.
 
 source_spec for index():
     { uri: "s3://bucket/prefix/", format: "jsonl", endpoint?: ..., region?: ... }
