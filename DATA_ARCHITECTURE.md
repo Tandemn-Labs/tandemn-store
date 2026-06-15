@@ -56,7 +56,8 @@ flowchart LR
 ### `tandemn_system_data` — canonical state
 
 Owns: Postgres models, SQLAlchemy ORM, Alembic migrations, event log,
-IDs, event envelope.
+IDs, event envelope, `CredentialStore`, and the worker-facing credentials
+HTTP endpoint (`create_credentials_app`).
 
 Imported by **Orca and Koi only**. Workers never import it.
 
@@ -64,8 +65,9 @@ Imported by **Orca and Koi only**. Workers never import it.
 
 Owns: `PayloadRef` / `OutputRef` / `NormalizedRecord` types, connector
 protocol, connectors (`S3Connector`, future
-Snowflake/BigQuery/GCS/Azure/Kafka/etc.), credential resolver (workers)
-and credential issuer (Orca).
+Snowflake/BigQuery/GCS/Azure/Kafka/etc.), and the worker-side credential
+resolver (`HttpCredentialResolver`). Orca mints credentials through
+`tandemn_system_data`; workers resolve them over HTTP at fetch time.
 
 Imported by **Orca, workers, and CLI**.
 
@@ -138,6 +140,8 @@ erDiagram
       jsonb output_target
       text status
       text finish_reason
+      timestamptz created_at
+      timestamptz finished_at
     }
     plans {
       text plan_id PK
@@ -146,6 +150,7 @@ erDiagram
       text tick_rationale
       jsonb actions_json
       text status
+      timestamptz created_at
     }
     chains {
       text chain_id PK
@@ -155,6 +160,7 @@ erDiagram
       jsonb shape_json
       text target_node
       text status
+      timestamptz created_at
     }
     events {
       text event_id PK
@@ -163,6 +169,7 @@ erDiagram
       text chain_id
       text type
       jsonb payload_json
+      timestamptz created_at
     }
     event_consumer_offsets {
       text consumer_name PK
@@ -175,8 +182,12 @@ erDiagram
       jsonb scope_json
       bytea secret_payload
       timestamptz expires_at
+      text rotated_from
+      timestamptz created_at
     }
 ```
+
+Full column reference (indexes, status values): `DATABASE.md`.
 
 Key column notes:
 
@@ -255,9 +266,11 @@ throughput numbers.
 
 ## 7. User Data Path
 
-User data never transits Orca during execution. (The Redis-backed chunk
-queue and /chunks endpoints below are Phase 2; in the MVP Orca hands
-chunk metadata to workers directly.)
+User data never transits Orca during execution.
+
+The diagram below is the **Phase 2** target (Redis chunk queue +
+`/chunks` API). In the MVP, Orca hands chunk metadata to workers
+directly — skip the Redis and `GET /chunks/next` steps.
 
 ```mermaid
 sequenceDiagram
@@ -433,7 +446,8 @@ Each is additive. None require schema changes.
 - Postgres holds the canonical spine. Every entity has a typed ID and a row.
 - Postgres `events` is both the durable audit log and MVP event delivery path.
 - Redis KV may hold the hot chunk queue when we need distributed worker coordination.
-- S3/MinIO holds Tandemn-owned blobs only. User data stays in the user's systems.
+- User data bytes live in the user's systems (S3, lakes, etc. via
+  connectors). Tandemn-owned blob storage is deferred (Phase 2).
 - Two libraries: `tandemn_system_data` for canonical state, `tandemn_user_data` for user payloads. Workers see only the second.
 - Plans are rationale + per-job actions (place/keep/defer/preempt/swap); placements gang-launch their chains; no traversal and no throughput columns in the MVP.
 - The Kubernetes migration replaces SkyPilot with `td_operator` + CRDs without touching the data model.
