@@ -36,65 +36,14 @@ Current repo: tandemn-labs/tandemn-store
 
 ## Repo-specific guide
 
-`tandemn-store` is the canonical data layer for Tandemn (Orca + Koi + workers), not an application server. It defines shared data contracts consumed by multiple repos.
+`tandemn-store` is the canonical data layer for Tandemn (Orca + Koi + workers), not an application server.
 
-### Project identity
+- **`tandemn_system_data`**: control-plane state (Postgres spine, Alembic, event log, credentials, JobStore, PlanStore, resource map contract).
+- **`tandemn_user_data`**: data-plane payloads (connectors, PayloadRef/OutputRef, worker fetch path). Must never import `tandemn_system_data` (enforced by import-linter).
+- **`DATA_ARCHITECTURE.md`** is the contract source of truth; keep it, Pydantic models, ORM, and Alembic migrations in sync.
 
-- Two packages with different responsibilities:
-  - `tandemn_system_data`: control-plane state for Orca and Koi (Postgres spine, Alembic, Postgres event log, credentials store/server, JobStore, resource map contract).
-  - `tandemn_user_data`: data-plane payload movement for Orca, workers, and CLI (PayloadRef, OutputRef, NormalizedRecord, connectors, worker fetch/write path).
-- Keep the package boundary strict: `tandemn_user_data` must never import `tandemn_system_data`. CI enforces this with `import-linter`.
-- The source-of-truth architecture is in `DATA_ARCHITECTURE.md` at the repo root; update it when changing the contract.
+**Schema invariants:** spine is `users`, `jobs`, `plans`, `chains`, `events`(+offsets), `credentials`. Job statuses: `waiting | running | paused | finished`. Plans are `tick_rationale` + `actions_json`. Chains are job-scoped. Do not re-add `koi_ticks`, `ranks`, `plan_jobs`, `attempts`, `outcomes`, or `resource_maps` tables. No throughput columns; MVP gang-launches chains (no traversal).
 
-### Schema and migration rules
+**Boundaries:** user data bytes do not transit Orca or Postgres. No Tandemn-owned blob client in MVP. Workers use `tandemn_user_data` only. Orca/Koi integration belongs in `tandemn-system` / `tandemn-intelligence`, not here.
 
-- Pydantic models, SQLAlchemy ORM, Alembic migrations, `DATABASE.md`, and `DATA_ARCHITECTURE.md` must stay in sync.
-- Any ORM schema change requires an Alembic migration and an `alembic check` pass.
-- The canonical spine is exactly: `users`, `jobs`, `plans`, `chains`, `events`(+offsets), `credentials`. Chains are job-scoped. Job statuses are exactly `waiting | running | paused | finished` (`finish_reason` NULL = success). Koi ticks, attempts, and outcomes are events, not tables; do not re-add `koi_ticks`, `ranks`, `plan_jobs`, `attempts`, or `outcomes`.
-- The resource map is NOT a Postgres table. It is Orca's in-memory state; this repo ships only the `ResourceMap` wire contract. Do not re-add a `resource_maps` table.
-- `plans` are one Koi pass's decision: `tick_rationale` plus `actions_json` (per-job `place|keep|defer|preempt|swap`, ladders with expected TPS inside). No throughput columns in the database; no traversal in the MVP (placements gang-launch their chains). Do not reintroduce a separate `decisions` table unless explicitly requested.
-- Use Postgres JSONB for schemaless-but-attached state (`actions_json`, `spec_json`, `shape_json`, `input_source`, `output_target`). Do not add Mongo/Dynamo just for hierarchical blobs.
-
-### Control plane / data plane boundary
-
-- User data bytes must not transit Orca or Postgres. Orca handles metadata and pointers only.
-- Future chunk queues carry metadata (`payload_ref`, `output_ref`, `chain_id`) and leases/retries, not prompt bytes.
-- There is no Tandemn-owned blob client in the MVP. User data sources go through `tandemn_user_data.connectors`; re-add an internal blob client only when something stores Tandemn-owned artifacts.
-- Workers use `tandemn_user_data` only. They fetch bytes directly from user data systems and resolve scoped credentials at fetch time.
-- Avoid connector sprawl. Add a new connector only when needed; keep provider-specific code isolated under `tandemn_user_data/connectors/`.
-
-### Linting, formatting, and tests
-
-- Use repo tooling, not ad hoc choices: `uv`, `ruff`, `mypy`, `pytest`, `alembic`, `import-linter`, `pre-commit`.
-- Run before submitting library changes:
-  - `uv run ruff check src tests`
-  - `uv run ruff format --check src tests`
-  - `uv run mypy`
-  - `uv run pytest -m "not integration"`
-  - `uv run lint-imports`
-- If Docker is available and behavior or migrations changed, also run `uv run pytest -m integration` and `uv run alembic check`.
-- If Docker is not running, say so explicitly and rely on GitHub Actions for integration verification.
-- Protect the contract, not just implementation details: schema relationships, event payloads, credential expiry, import boundaries, connector semantics, and migration drift. For bug fixes, add focused regression tests.
-
-### CI/CD expectations
-
-- GitHub Actions is the source of truth for PR/push checks.
-- CI runs lint, format check, import-linter, unit tests, Postgres/MinIO integration tests, and `alembic check`.
-- Do not add CI steps that require AWS, GPUs, paid cloud resources, gated model downloads, or external secrets. Use MinIO for S3-compatible tests.
-
-### Dependency policy
-
-- Keep dependencies narrow and stable. This is a shared library consumed by multiple repos.
-- Be especially careful when bumping SQLAlchemy, Alembic, Pydantic, FastAPI, httpx, boto3/botocore, or uvicorn; call out operational impact and test coverage.
-- Do not add heavyweight cloud/data dependencies to the base package for future connectors. Prefer optional extras or delayed connector-specific dependencies.
-
-### Repository boundaries
-
-- This repo should not import Orca or Koi internals.
-- Orca integration belongs in `tandemn-system`; Koi integration belongs in `tandemn-intelligence`.
-
-### Editing agent instruction files
-
-- Keep `AGENTS.md` under 200 lines.
-- Add rules only when an agent would likely do the wrong thing without them.
-- Do not copy tool documentation here; rely on repo config and existing scripts.
+**Changes:** ORM edits require an Alembic migration and `alembic check`. Shared library — keep dependencies narrow.
