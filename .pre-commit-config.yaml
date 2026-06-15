@@ -17,10 +17,6 @@ repos:
         language: system
         types_or: [python, pyi]
         pass_filenames: false
-
-  # Boundary: tandemn_user_data must never import tandemn_system_data.
-  - repo: local
-    hooks:
       - id: import-linter
         name: import-linter
         entry: uv run lint-imports

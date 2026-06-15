@@ -34,7 +34,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pre-commit>=4.0",
+    "pre-commit",
     "pytest>=8.0",
     "ruff>=0.5",
     "mypy>=1.11",
