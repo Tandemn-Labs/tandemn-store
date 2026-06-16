@@ -17,8 +17,10 @@ from typing import Any
 
 from sqlalchemy import (
     DateTime,
+    Float,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     String,
     Text,
@@ -189,6 +191,108 @@ class CredentialsRow(Base):
 
 
 # ---------------------------------------------------------------------------
+# resource_maps (Orca reconciler — one live snapshot per user)
+# ---------------------------------------------------------------------------
+
+
+class ResourceMapRow(Base):
+    __tablename__ = "resource_maps"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # provider -> instance_type -> {total, available, metadata?}
+    pools_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Koi evidence (learning / replay — not Orca handoff)
+# ---------------------------------------------------------------------------
+
+
+class EvidenceRowRow(Base):
+    __tablename__ = "evidence_rows"
+
+    row_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    tick: Mapped[int] = mapped_column(Integer, nullable=False)
+    job_id: Mapped[str] = mapped_column(Text, nullable=False)
+    rank_id: Mapped[str] = mapped_column(Text, nullable=False)
+    deploy_timestamp_utc: Mapped[float] = mapped_column(Float, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_evidence_rows_user_tick", "user_id", "tick"),
+        Index("ix_evidence_rows_user_job_tick", "user_id", "job_id", "tick"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Koi causal graph (topology + Beta confidence — Koi-only)
+# ---------------------------------------------------------------------------
+
+
+class KoiCausalNodeRow(Base):
+    __tablename__ = "koi_causal_nodes"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    node_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    node_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unit: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class KoiCausalEdgeRow(Base):
+    __tablename__ = "koi_causal_edges"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    edge_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    src: Mapped[str] = mapped_column(Text, nullable=False)
+    dst: Mapped[str] = mapped_column(Text, nullable=False)
+    src_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    dst_type: Mapped[str] = mapped_column(String(8), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    alpha: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    beta: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    visit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_touched_tick: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    q_histogram_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    envs_seen_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    q3_frequency: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class KoiCausalMechanismRow(Base):
+    __tablename__ = "koi_causal_mechanisms"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    mechanism_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    edge_ids_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    scope_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    narrative: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    archived_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alpha: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    beta: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    visit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_touched_tick: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    q_histogram_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    envs_seen_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    inspection_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+# ---------------------------------------------------------------------------
 # Convenience export
 # ---------------------------------------------------------------------------
 
@@ -201,4 +305,9 @@ ALL_TABLES: tuple[type[Base], ...] = (
     EventRow,
     EventConsumerOffsetRow,
     CredentialsRow,
+    ResourceMapRow,
+    EvidenceRowRow,
+    KoiCausalNodeRow,
+    KoiCausalEdgeRow,
+    KoiCausalMechanismRow,
 )

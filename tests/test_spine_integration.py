@@ -9,7 +9,15 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import inspect
 
-from tandemn_system_data.clients import JobStore, PlanStore, PostgresClient, PostgresEventLog
+from tandemn_system_data.clients import (
+    CausalGraphStore,
+    EvidenceStore,
+    JobStore,
+    PlanStore,
+    PostgresClient,
+    PostgresEventLog,
+    ResourceMapStore,
+)
 from tandemn_system_data.db import ALL_TABLES, ChainRow, EventRow, JobRow, PlanRow, UserRow
 from tandemn_system_data.ids import (
     new_chain_id,
@@ -20,15 +28,23 @@ from tandemn_system_data.ids import (
 )
 from tandemn_system_data.models import (
     ActionType,
+    CausalEdge,
+    CausalMechanism,
+    CausalNode,
     Chain,
     ChainRole,
     ChainStatus,
+    EdgeMetadata,
     Event,
+    EvidenceRow,
     Job,
     JobKind,
     JobStatus,
+    MechanismMetadata,
     Plan,
     PlanAction,
+    ResourcePool,
+    format_evidence_row_id,
 )
 from tests.conftest import REPO_ROOT
 
@@ -285,3 +301,138 @@ def test_event_log_cursor_and_consumer_ack(pg_client: PostgresClient):
     assert [e.event_id for e in log.read_for_consumer(consumer)] == [second.event_id]
     log.ack(consumer, second.event_id)
     assert log.read_for_consumer(consumer) == []
+
+
+# ----- Evidence store (Koi tick history) --------------------------------------
+
+
+def _evidence_row(tick: int, job_id: str, rank_id: str) -> EvidenceRow:
+    row_id = format_evidence_row_id(tick, job_id, rank_id)
+    return EvidenceRow(
+        row_id=row_id,
+        tick=tick,
+        deploy_timestamp_utc=float(tick),
+        job_id=job_id,
+        rank_id=rank_id,
+        env_label=("aws", "us-east-1", "on-demand", "H100"),
+        X={"n": tick},
+        W_observed={"tps": float(tick)},
+        V_observed_trajectory={"latency": [1.0]},
+        V_predicted_trajectory={"latency": [1.1]},
+        y_observed_trajectory={"cost": [0.5]},
+        y_predicted={"cost": 0.48},
+        y_observed_mean={"cost": 0.5},
+        residuals_per_v={"latency": [0.0]},
+        residuals_per_y={"cost": [0.02]},
+    )
+
+
+def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
+    store = EvidenceStore(pg_client)
+    job_id = new_job_id()
+
+    for tick in range(1, 13):
+        store.put(user_id, _evidence_row(tick, job_id, "prefill-0"))
+
+    recent = store.recent(user_id, last_n_ticks=10)
+    assert {r.tick for r in recent} == set(range(3, 13))
+    assert len(recent) == 10
+
+    fetched = store.get(format_evidence_row_id(12, job_id, "prefill-0"))
+    assert fetched is not None and fetched.X == {"n": 12}
+
+
+# ----- Resource map (Postgres) ------------------------------------------------
+
+
+def _pools(available: int) -> dict[str, dict[str, ResourcePool]]:
+    return {"aws": {"g6e.12xlarge": ResourcePool(total=8, available=available)}}
+
+
+def test_resource_map_store_postgres(pg_client: PostgresClient, user_id: str):
+    store = ResourceMapStore(pg_client, user_id=user_id)
+
+    assert store.get().version == 0
+    assert store.get().pools == {}
+
+    first = store.replace(_pools(available=5))
+    assert first.version == 1
+    assert first.pools["aws"]["g6e.12xlarge"].available == 5
+
+    second = store.replace(_pools(available=3))
+    assert second.version == 2
+    assert store.get().pools["aws"]["g6e.12xlarge"].available == 3
+
+    other = ResourceMapStore(pg_client, user_id=new_user_id())
+    assert other.get().version == 0
+
+
+# ----- Causal graph (Koi topology + confidence) --------------------------------
+
+
+def test_causal_graph_store_postgres(pg_client: PostgresClient, user_id: str):
+    store = CausalGraphStore(pg_client, user_id=user_id)
+    assert store.is_empty()
+
+    nodes = {
+        "tp": CausalNode(node_id="tp", node_type="X"),
+        "gpu_mem": CausalNode(node_id="gpu_mem", node_type="V"),
+    }
+    edge_id = "tp->gpu_mem"
+    edges = {
+        edge_id: CausalEdge(
+            edge_id=edge_id,
+            src="tp",
+            dst="gpu_mem",
+            src_type="X",
+            dst_type="V",
+        )
+    }
+    edge_metadata = {
+        edge_id: EdgeMetadata(edge_id=edge_id, alpha=1.0, beta=1.0),
+    }
+    mechanism_id = "M_demo"
+    mechanisms = {
+        mechanism_id: CausalMechanism(
+            mechanism_id=mechanism_id,
+            name="tp_memory_pressure",
+            edge_ids=[edge_id],
+            scope={"x": ["tp"], "v": ["gpu_mem"]},
+            narrative="tensor parallelism affects GPU memory",
+        )
+    }
+    mechanism_metadata = {
+        mechanism_id: MechanismMetadata(mechanism_id=mechanism_id),
+    }
+
+    store.replace_nodes(nodes.values())
+    store.replace_edges(edges.values(), edge_metadata)
+    store.sync_mechanisms(mechanisms, mechanism_metadata)
+
+    loaded_nodes = store.load_nodes()
+    loaded_edges, loaded_edge_meta = store.load_edges()
+    loaded_mechs, loaded_mech_meta = store.load_mechanisms()
+
+    assert loaded_nodes["tp"].node_type == "X"
+    assert loaded_edges[edge_id].src == "tp"
+    assert loaded_edge_meta[edge_id].alpha == 1.0
+
+    loaded_edge_meta[edge_id].alpha = 2.5
+    loaded_edge_meta[edge_id].visit_count = 3
+    loaded_edge_meta[edge_id].envs_seen.add(("aws", "us-east-1", "on_demand", "H100"))
+    store.sync_edge_metadata(loaded_edge_meta)
+
+    _, reloaded_meta = store.load_edges()
+    assert reloaded_meta[edge_id].alpha == 2.5
+    assert reloaded_meta[edge_id].visit_count == 3
+    assert ("aws", "us-east-1", "on_demand", "H100") in reloaded_meta[edge_id].envs_seen
+
+    loaded_mechs[mechanism_id].status = "archived"
+    loaded_mechs[mechanism_id].archived_reason = "superseded"
+    loaded_mech_meta[mechanism_id].beta = 0.5
+    store.sync_mechanisms(loaded_mechs, loaded_mech_meta)
+
+    reloaded_mechs, reloaded_mech_meta = store.load_mechanisms()
+    assert reloaded_mechs[mechanism_id].name == "tp_memory_pressure"
+    assert reloaded_mechs[mechanism_id].status == "archived"
+    assert reloaded_mech_meta[mechanism_id].beta == 0.5

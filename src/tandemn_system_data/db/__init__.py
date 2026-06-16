@@ -15,8 +15,13 @@ from tandemn_system_data.db.orm import (
     CredentialsRow,
     EventConsumerOffsetRow,
     EventRow,
+    EvidenceRowRow,
     JobRow,
+    KoiCausalEdgeRow,
+    KoiCausalMechanismRow,
+    KoiCausalNodeRow,
     PlanRow,
+    ResourceMapRow,
     UserRow,
 )
 
@@ -27,7 +32,12 @@ __all__ = [
     "CredentialsRow",
     "EventConsumerOffsetRow",
     "EventRow",
+    "EvidenceRowRow",
     "JobRow",
+    "KoiCausalEdgeRow",
+    "KoiCausalMechanismRow",
+    "KoiCausalNodeRow",
     "PlanRow",
+    "ResourceMapRow",
     "UserRow",
 ]
