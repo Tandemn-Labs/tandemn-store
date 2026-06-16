@@ -1,36 +1,29 @@
-"""Unit tests for the system_data contracts: IDs, models, events,
-resource map. No infrastructure required."""
+"""Unit tests for the system_data contracts: IDs, models, events."""
 
 from __future__ import annotations
 
-import threading
 from datetime import UTC, datetime, timedelta
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from tandemn_system_data import events, ids
-from tandemn_system_data.clients import (
-    ResourceMapClient,
-    ResourceMapStore,
-    create_resource_map_app,
-)
 from tandemn_system_data.models import (
     ActionType,
     Chain,
     ChainRole,
     ChainStatus,
     Credentials,
+    EvidenceRow,
     Job,
     JobKind,
     JobStatus,
     Plan,
     PlanAction,
-    ResourceMap,
-    ResourcePool,
     User,
+    evidence_payload_from_row,
+    evidence_row_to_payload,
+    format_evidence_row_id,
 )
 
 # ----- IDs -------------------------------------------------------------------
@@ -93,6 +86,62 @@ def test_chain_is_job_scoped_with_optional_plan_provenance():
     assert c.plan_id is None
 
 
+def test_evidence_row_id_format():
+    row_id = format_evidence_row_id(42, "job_abc", "prefill-0")
+    assert row_id == "42_job_abc_prefill-0"
+    row = EvidenceRow(
+        row_id=row_id,
+        tick=42,
+        deploy_timestamp_utc=1_700_000_000.0,
+        job_id="job_abc",
+        rank_id="prefill-0",
+        env_label=("aws", "us-east-1", "on-demand", "H100"),
+        X={"gpu_count": 8},
+        W_observed={"tps": 1200.0},
+        V_observed_trajectory={"latency": [1.0, 2.0]},
+        V_predicted_trajectory={"latency": [1.1, 2.1]},
+        y_observed_trajectory={"cost": [0.5]},
+        y_predicted={"cost": 0.48},
+        y_observed_mean={"cost": 0.5},
+        residuals_per_v={"latency": [0.0, 0.0]},
+        residuals_per_y={"cost": [0.02]},
+    )
+    assert row.row_id == row_id and row.theory_blob is None
+
+
+def test_evidence_row_payload_round_trip():
+    row = EvidenceRow(
+        row_id="1_job_a_prefill",
+        tick=1,
+        deploy_timestamp_utc=1.0,
+        job_id="job_a",
+        rank_id="prefill",
+        env_label=("aws", "us-east-1", "spot", "H100"),
+        X={"k": 1},
+        W_observed={"tps": 100.0},
+        V_observed_trajectory={"v": [1.0, 2.0]},
+        V_predicted_trajectory={"v": [1.1, 2.1]},
+        y_observed_trajectory={"y": [0.5]},
+        y_predicted={"y": 0.4},
+        y_observed_mean={"y": 0.5},
+        residuals_per_v={"v": [0.0, 0.0]},
+        residuals_per_y={"y": [0.1]},
+        cusum_per_mechanism={"m1": (1, 2)},
+    )
+    payload = evidence_row_to_payload(row)
+    back = evidence_payload_from_row(
+        row_id=row.row_id,
+        tick=row.tick,
+        deploy_timestamp_utc=row.deploy_timestamp_utc,
+        job_id=row.job_id,
+        rank_id=row.rank_id,
+        payload=payload,
+    )
+    assert back.env_label == row.env_label
+    assert back.cusum_per_mechanism == {"m1": (1, 2)}
+    assert back.y_predicted == row.y_predicted
+
+
 def test_models_forbid_extras():
     with pytest.raises(ValidationError):
         User(name="X", bogus="nope")  # type: ignore[call-arg]
@@ -143,47 +192,3 @@ def test_payload_validation_enforces_shape():
         events.validate_payload("job.submitted", {"job_id": "j", "user_id": "u", "extra": "boom"})
     with pytest.raises(ValueError):
         events.payload_model_for("not.a.real.event")
-
-
-# ----- Resource map (in-memory contract, not a table) ------------------------
-
-
-def _pools(available: int) -> dict[str, dict[str, ResourcePool]]:
-    return {"aws": {"g6e.12xlarge": ResourcePool(total=8, available=available)}}
-
-
-def test_resource_map_store_versions_never_collide():
-    store = ResourceMapStore()
-    assert store.get().version == 0
-
-    threads = [
-        threading.Thread(target=lambda: [store.replace(_pools(1)) for _ in range(50)])
-        for _ in range(8)
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert store.get().version == 400
-
-
-def test_resource_map_endpoint_and_client_round_trip(monkeypatch):
-    store = ResourceMapStore()
-    store.replace(_pools(available=3))
-    app_client = TestClient(create_resource_map_app(store))
-
-    resp = app_client.get("/resource-map")
-    assert ResourceMap.model_validate(resp.json()).pools["aws"]["g6e.12xlarge"].available == 3
-
-    import tandemn_system_data.clients.resource_map as rm_module
-
-    monkeypatch.setattr(
-        rm_module.httpx, "get", lambda url, timeout=None: app_client.get("/resource-map")
-    )
-    assert ResourceMapClient("http://orca").get().version == 1
-
-    monkeypatch.setattr(
-        rm_module.httpx, "get", lambda url, timeout=None: httpx.Response(500, text="boom")
-    )
-    with pytest.raises(RuntimeError):
-        ResourceMapClient("http://orca").get()
