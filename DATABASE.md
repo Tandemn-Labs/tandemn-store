@@ -96,7 +96,7 @@ erDiagram
     resource_maps {
       TEXT user_id PK FK
       INT version "monotonic per replace"
-      JSONB pools_json "capacity_type + clouds tree"
+      JSONB pools_json "market + clouds tree"
       TIMESTAMPTZ updated_at
     }
 
@@ -160,11 +160,13 @@ Not tables, on purpose:
 - **koi ticks** — `tick.started` / `tick.completed` events; `tick_id` is a
   correlation string. FSM `tick` integers index `evidence_rows.tick`.
 
-**`resource_maps.pools_json`** holds `{capacity_type, clouds}` — the same
+**`resource_maps.pools_json`** holds `{market, clouds}` — the same
 hierarchical shape as `ResourceMap` (`clouds → regions → zones →
 network_fabrics → machine_pools`). Row columns `version` and `updated_at`
-mirror the wire contract. Orca `replace`s; Koi `get`s and calls
-`scheduling_summary()` for flat GPU counts.
+mirror the wire contract. Stores total capacity (and
+`price_per_instance_hour`) only — free capacity is inferred from running
+jobs. Orca `replace`s; Koi `get`s and calls `scheduling_summary()` for flat
+GPU counts (env_key `market|cloud|region|zone|gpu_type`).
 
 **`evidence_rows`** (Koi learning / replay — not Orca handoff): indexed
 columns in the diagram; heavy fields in `payload_json`. Query path:

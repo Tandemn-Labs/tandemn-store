@@ -216,7 +216,7 @@ Key column notes:
 - `event_consumer_offsets` tracks each consumer's cursor into the Postgres
   event log. Consumers update their cursor only after successful processing.
 - `resource_maps`: one live snapshot per user. `pools_json` stores
-  `{capacity_type, clouds}` — hierarchical capacity (see §6). Orca
+  `{market, clouds}` — hierarchical capacity (see §6). Orca
   `replace`s with a bumped `version`; Koi `get`s.
 - `evidence_rows` and `koi_causal_*`: Koi-only durability (see §6). Not Orca
   handoff surfaces. Full column reference: `DATABASE.md`.
@@ -242,8 +242,9 @@ MVP it reflects the capacity reservations the user already holds; Orca
 updates it when a job reserves or releases resources (place / preempt /
 swap / finish). Orca's reconciler is its single writer; one row per
 ``user_id`` in ``resource_maps`` with a monotonic ``version`` and
-``pools_json`` (``capacity_type`` + ``clouds``; same wire shape as
-``ResourceMap``).
+``pools_json`` (``market`` + ``clouds``; same wire shape as
+``ResourceMap``). The map stores **total** capacity only — free capacity is
+inferred from running jobs, not persisted.
 
 Wire shape (abbreviated):
 
@@ -251,7 +252,7 @@ Wire shape (abbreviated):
 {
   "version": 2,
   "updated_at": "...",
-  "capacity_type": ["reserved"],
+  "market": ["reserved"],
   "clouds": {
     "aws": {
       "regions": {
@@ -267,7 +268,7 @@ Wire shape (abbreviated):
                       "gpu_type": "L40S",
                       "gpus_per_instance": 4,
                       "total_instances": 8,
-                      "available_instances": 3
+                      "price_per_instance_hour": 10.49
                     }
                   }
                 }
@@ -281,10 +282,9 @@ Wire shape (abbreviated):
 }
 ```
 
-Orca updates ``available_instances`` on place / preempt / swap / finish.
-Koi reads the tree via ``ResourceMapStore.get`` and flattens GPU capacity
-with ``ResourceMap.scheduling_summary()`` (env_key =
-``cloud|region|zone|gpu_type``).
+Koi reads the tree via ``ResourceMapStore.get`` and flattens total GPU
+capacity with ``ResourceMap.scheduling_summary()`` (env_key =
+``market|cloud|region|zone|gpu_type``).
 
 The pass produces one `plan`: a cluster-wide rationale plus one action
 per job it considered:

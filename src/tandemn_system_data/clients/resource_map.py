@@ -14,7 +14,7 @@ from tandemn_system_data.models.resource_map import Cloud, ResourceMap
 
 def _body_to_json(resource_map: ResourceMap) -> dict[str, Any]:
     return {
-        "capacity_type": list(resource_map.capacity_type),
+        "market": list(resource_map.market),
         "clouds": {
             cloud_id: cloud.model_dump(mode="json")
             for cloud_id, cloud in resource_map.clouds.items()
@@ -24,13 +24,13 @@ def _body_to_json(resource_map: ResourceMap) -> dict[str, Any]:
 
 def _body_from_json(raw: dict[str, Any]) -> tuple[list[str], dict[str, Cloud]]:
     if "clouds" in raw:
-        capacity_type = list(raw.get("capacity_type") or ["reserved"])
+        market = list(raw.get("market") or ["reserved"])
         clouds = {
             cloud_id: Cloud.model_validate(cloud_body)
             for cloud_id, cloud_body in (raw.get("clouds") or {}).items()
         }
-        return capacity_type, clouds
-    # Legacy flat pools[provider][instance_type] -> {total, available, metadata}
+        return market, clouds
+    # Legacy flat pools[provider][instance_type] -> {total, metadata}
     return _legacy_flat_pools_to_clouds(raw)
 
 
@@ -48,9 +48,7 @@ def _legacy_flat_pools_to_clouds(raw: dict[str, Any]) -> tuple[list[str], dict[s
             gpu_type = str(meta.get("gpu_type") or instance_type)
             gpus_per = int(meta.get("gpus_per_instance") or 1)
             total_gpus = int(pool.get("total") or 0)
-            avail_gpus = int(pool.get("available") or 0)
             total_instances = total_gpus // gpus_per if gpus_per else 0
-            avail_instances = avail_gpus // gpus_per if gpus_per else 0
             cloud_body = tree.setdefault(provider, {"regions": {}})
             region_body = cloud_body["regions"].setdefault(region_id, {"zones": {}})
             zone_body = region_body["zones"].setdefault(zone_id, {"network_fabrics": {}})
@@ -63,18 +61,18 @@ def _legacy_flat_pools_to_clouds(raw: dict[str, Any]) -> tuple[list[str], dict[s
                 "gpu_type": gpu_type,
                 "gpus_per_instance": gpus_per,
                 "total_instances": total_instances,
-                "available_instances": avail_instances,
+                "price_per_instance_hour": meta.get("price_per_instance_hour"),
             }
     clouds = {cloud_id: Cloud.model_validate(body) for cloud_id, body in tree.items()}
     return ["reserved"], clouds
 
 
 def _row_to_model(row: ResourceMapRow) -> ResourceMap:
-    capacity_type, clouds = _body_from_json(row.pools_json)
+    market, clouds = _body_from_json(row.pools_json)
     return ResourceMap(
         version=row.version,
         updated_at=row.updated_at,
-        capacity_type=capacity_type,
+        market=market,
         clouds=clouds,
     )
 

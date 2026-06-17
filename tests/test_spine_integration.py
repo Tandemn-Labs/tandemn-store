@@ -352,9 +352,9 @@ def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
 # ----- Resource map (Postgres) ------------------------------------------------
 
 
-def _sample_resource_map(available_instances: int) -> ResourceMap:
+def _sample_resource_map(total_instances: int) -> ResourceMap:
     return ResourceMap(
-        capacity_type=["reserved"],
+        market=["reserved"],
         clouds={
             "aws": Cloud(
                 regions={
@@ -370,8 +370,8 @@ def _sample_resource_map(available_instances: int) -> ResourceMap:
                                                 instance_family="g6",
                                                 gpu_type="L40S",
                                                 gpus_per_instance=4,
-                                                total_instances=8,
-                                                available_instances=available_instances,
+                                                total_instances=total_instances,
+                                                price_per_instance_hour=10.49,
                                             )
                                         },
                                     )
@@ -401,14 +401,14 @@ def test_resource_map_store_postgres(pg_client: PostgresClient, user_id: str):
     assert store.get().version == 0
     assert store.get().clouds == {}
 
-    first = store.replace(_sample_resource_map(available_instances=5))
+    first = store.replace(_sample_resource_map(total_instances=5))
     assert first.version == 1
-    assert _g6e_pool(first).available_instances == 5
-    assert first.scheduling_summary()["aws|us-east-2|use2-az3|L40S"]["free"] == 20
+    assert _g6e_pool(first).total_instances == 5
+    assert first.scheduling_summary()["reserved|aws|us-east-2|use2-az3|L40S"]["total"] == 20
 
-    second = store.replace(_sample_resource_map(available_instances=3))
+    second = store.replace(_sample_resource_map(total_instances=3))
     assert second.version == 2
-    assert _g6e_pool(store.get()).available_instances == 3
+    assert _g6e_pool(store.get()).total_instances == 3
 
     other = ResourceMapStore(pg_client, user_id=new_user_id())
     assert other.get().version == 0

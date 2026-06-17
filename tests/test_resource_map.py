@@ -13,9 +13,9 @@ from tandemn_system_data.models.resource_map import (
 )
 
 
-def _efa_map(available_instances: int) -> ResourceMap:
+def _efa_map() -> ResourceMap:
     return ResourceMap(
-        capacity_type=["reserved"],
+        market=["reserved"],
         clouds={
             "aws": Cloud(
                 regions={
@@ -33,7 +33,7 @@ def _efa_map(available_instances: int) -> ResourceMap:
                                                 gpu_memory_gb=40,
                                                 gpus_per_instance=8,
                                                 total_instances=10,
-                                                available_instances=available_instances,
+                                                price_per_instance_hour=32.77,
                                                 intra_machine_interconnect=IntraMachineInterconnect(
                                                     type="nvlink_nvswitch"
                                                 ),
@@ -51,13 +51,13 @@ def _efa_map(available_instances: int) -> ResourceMap:
 
 
 def test_resource_map_scheduling_summary():
-    summary = _efa_map(available_instances=7).scheduling_summary()
-    assert summary["aws|us-east-2|use2-az3|A100"] == {
-        "free": 56,
+    summary = _efa_map().scheduling_summary()
+    assert summary["reserved|aws|us-east-2|use2-az3|A100"] == {
         "total": 80,
-        "available_instances": 7,
         "total_instances": 10,
         "gpu_type": "A100",
+        "price_per_instance_hour": 32.77,
+        "market": "reserved",
         "cloud": "aws",
         "region": "us-east-2",
         "zone": "use2-az3",
@@ -69,6 +69,6 @@ def test_resource_map_scheduling_summary():
 
 
 def test_resource_map_json_round_trip():
-    original = _efa_map(available_instances=3)
+    original = _efa_map()
     restored = ResourceMap.model_validate_json(original.model_dump_json())
     assert restored == original
