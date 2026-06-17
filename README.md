@@ -8,6 +8,7 @@ Ships two packages:
 - **`tandemn_user_data`** — user payloads in motion (connectors, credential resolver, `PayloadRef` / `OutputRef` / `NormalizedRecord`). Imported by **Orca, workers, and CLI**.
 
 The architecture and rationale live in [`DATA_ARCHITECTURE.md`](./DATA_ARCHITECTURE.md).
+Koi integration: [`docs/KOI_INTEGRATION.md`](./docs/KOI_INTEGRATION.md).
 
 ---
 
@@ -19,7 +20,9 @@ The architecture and rationale live in [`DATA_ARCHITECTURE.md`](./DATA_ARCHITECT
 - `PostgresClient`, `PostgresEventLog` (append events, read by cursor, `event_consumer_offsets`)
 - `JobStore` — Orca writes (submit, CAS status transitions, gang chain launch), Koi reads (waiting/running jobs + active chains)
 - `PlanStore` — the Koi → Orca handoff: Koi `create`s a plan, Orca polls `unapplied` and `mark_applied`s (CAS)
-- `ResourceMap` — wire contract only; the live map is an in-memory variable in Orca (single writer, versioned snapshots), not a table
+- `ResourceMap` + `ResourceMapStore` — hierarchical capacity snapshot per user (`resource_maps.pools_json`); Orca `replace`s, Koi `get`s + `scheduling_summary()`
+- `EvidenceStore` — Koi tick history (`evidence_rows`)
+- `CausalGraphStore` — Koi topology + confidence (`koi_causal_*`)
 - `CredentialStore` + `/credentials/<ref>` FastAPI app behind a worker bearer token
 
 **`tandemn_user_data`**
@@ -32,9 +35,7 @@ The `tandemn_user_data → tandemn_system_data` import direction is forbidden
 by `.importlinter` and checked on every PR; workers run on customer GPU
 nodes and must never reach canonical state.
 
-**Next:** strangler-fig integration into `tandemn-system` (Orca) — `submit_batch`
-cutover, chunk queue behind Orca's HTTP API, real STS/KMS/Vault behind the
-credential issuer.
+**Next:** strangler-fig integration into `tandemn-system` (Orca).
 
 ---
 
@@ -84,7 +85,7 @@ src/
 │   ├── models/                  # Pydantic models
 │   ├── db/                      # SQLAlchemy ORM
 │   ├── migrations/              # Alembic
-│   ├── clients/                 # Postgres / event log / credentials / S3
+│   ├── clients/                 # Postgres stores, event log, credentials
 │   ├── ids.py                   # canonical ID generator
 │   └── events.py                # event envelope + payload registry
 └── tandemn_user_data/           # user payloads (Orca + workers + CLI)

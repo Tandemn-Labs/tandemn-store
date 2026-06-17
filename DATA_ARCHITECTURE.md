@@ -121,6 +121,11 @@ erDiagram
     users ||--o{ jobs : has
     users ||--o{ credentials : owns
     users ||--o{ plans : schedules
+    users ||--o| resource_maps : "capacity snapshot"
+    users ||--o{ evidence_rows : "Koi learning"
+    users ||--o{ koi_causal_nodes : "Koi topology"
+    users ||--o{ koi_causal_edges : "Koi topology"
+    users ||--o{ koi_causal_mechanisms : "Koi topology"
     jobs ||--o{ chains : "served by"
     jobs ||--o{ events : emits
     chains ||--o{ events : emits
@@ -210,25 +215,76 @@ Key column notes:
 - `credentials.secret_payload` is encrypted at rest. Workers never read this table directly.
 - `event_consumer_offsets` tracks each consumer's cursor into the Postgres
   event log. Consumers update their cursor only after successful processing.
+- `resource_maps`: one live snapshot per user. `pools_json` stores
+  `{capacity_type, clouds}` — hierarchical capacity (see §6). Orca
+  `replace`s with a bumped `version`; Koi `get`s.
+- `evidence_rows` and `koi_causal_*`: Koi-only durability (see §6). Not Orca
+  handoff surfaces. Full column reference: `DATABASE.md`.
 
 ---
 
 ## 6. Koi Passes and Plan Actions
 
-Koi runs a scheduler pass roughly every 100 seconds. Each pass looks at:
+Full integration checklist: [`docs/KOI_INTEGRATION.md`](./docs/KOI_INTEGRATION.md).
+
+Koi runs a scheduler pass whenever it decides the cluster needs a new
+decision — on a timer, after relevant events, or on demand. The trigger
+is a Koi implementation detail; this contract only requires that each
+pass produces one `plan`. Each pass looks at:
 
 - waiting jobs and running jobs (Postgres, via `JobStore`: running jobs
   carry the active chains serving them)
 - paused jobs (preempted; candidates to resume)
-- the current resource map (Orca's live in-memory view, read via GET /resource-map)
+- the current resource map (Postgres `resource_maps` per user)
 
-The resource map is **not** a Postgres table and is **not** refreshed by
-polling cloud providers. For the MVP it reflects the capacity
-reservations the user already holds; Orca updates it when a job
-reserves or releases resources (place / preempt / swap / finish).
-Orca's reconciler is its single writer; it serves versioned snapshots
-(`ResourceMap`) so readers can detect staleness. If Orca goes
-multi-replica, the map moves to a Postgres JSONB row with the same shape.
+The resource map is **not** refreshed by polling cloud providers. For the
+MVP it reflects the capacity reservations the user already holds; Orca
+updates it when a job reserves or releases resources (place / preempt /
+swap / finish). Orca's reconciler is its single writer; one row per
+``user_id`` in ``resource_maps`` with a monotonic ``version`` and
+``pools_json`` (``capacity_type`` + ``clouds``; same wire shape as
+``ResourceMap``).
+
+Wire shape (abbreviated):
+
+```jsonc
+{
+  "version": 2,
+  "updated_at": "...",
+  "capacity_type": ["reserved"],
+  "clouds": {
+    "aws": {
+      "regions": {
+        "us-east-2": {
+          "zones": {
+            "use2-az3": {
+              "network_fabrics": {
+                "efa-cluster-a": {
+                  "fabric_type": "efa",
+                  "gpu_direct_rdma": true,
+                  "machine_pools": {
+                    "g6e.12xlarge": {
+                      "gpu_type": "L40S",
+                      "gpus_per_instance": 4,
+                      "total_instances": 8,
+                      "available_instances": 3
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Orca updates ``available_instances`` on place / preempt / swap / finish.
+Koi reads the tree via ``ResourceMapStore.get`` and flattens GPU capacity
+with ``ResourceMap.scheduling_summary()`` (env_key =
+``cloud|region|zone|gpu_type``).
 
 The pass produces one `plan`: a cluster-wide rationale plus one action
 per job it considered:
@@ -261,6 +317,31 @@ chain on 8xA100, Orca launches all of it at once
 chain row per launched chain. Expected TPS lives inside the
 ladder JSON for Koi's own bookkeeping; the database stores no
 throughput numbers.
+
+### Koi evidence (`evidence_rows`)
+
+Koi emits `EvidenceRow` records (`tandemn_system_data.models`) per
+(tick, job, rank) during a pass and persists them via `EvidenceStore`.
+Before each new pass Koi reads ``EvidenceStore.recent(user_id,
+last_n_ticks=10)`` (or more) to feed CUSUM/ICP and surrogate updates.
+
+Indexed columns: `row_id`, `user_id`, `tick`, `job_id`, `rank_id`,
+`deploy_timestamp_utc`; heavy fields live in `payload_json`. Not an Orca
+handoff surface. `rank_id` is a Koi ladder-step key, not a spine `ranks`
+table.
+
+### Koi causal graph (`koi_causal_*`)
+
+Koi persists its candidate-graph topology and Beta confidence in three
+Postgres tables per user: ``koi_causal_nodes``, ``koi_causal_edges``,
+``koi_causal_mechanisms``. Edge and mechanism confidence metadata
+(alpha/beta, visit counts, Q histograms) are co-located with topology
+rows — not separate tables.
+
+Koi loads via ``CausalGraphStore`` at boot (seed from JSON once if empty),
+keeps hot-path state in memory during a tick, and flushes confidence
+updates back with ``sync_edge_metadata`` / ``sync_mechanisms`` after S3
+writes. Not an Orca handoff surface.
 
 ---
 

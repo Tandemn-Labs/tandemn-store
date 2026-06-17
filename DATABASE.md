@@ -18,6 +18,11 @@ erDiagram
     users ||--o{ jobs            : "owns"
     users ||--o{ plans           : "schedules"
     users ||--o{ credentials     : "owns"
+    users ||--o| resource_maps   : "capacity snapshot"
+    users ||--o{ evidence_rows   : "Koi learning"
+    users ||--o{ koi_causal_nodes : "Koi topology"
+    users ||--o{ koi_causal_edges : "Koi topology"
+    users ||--o{ koi_causal_mechanisms : "Koi topology"
 
     jobs ||--o{ chains           : "served by"
     event_consumer_offsets ||--o{ events : "cursor into"
@@ -87,16 +92,92 @@ erDiagram
       TEXT rotated_from "nullable, prior credentials_ref"
       TIMESTAMPTZ created_at
     }
+
+    resource_maps {
+      TEXT user_id PK FK
+      INT version "monotonic per replace"
+      JSONB pools_json "capacity_type + clouds tree"
+      TIMESTAMPTZ updated_at
+    }
+
+    evidence_rows {
+      TEXT row_id PK
+      TEXT user_id FK
+      INT tick
+      TEXT job_id
+      TEXT rank_id
+      FLOAT deploy_timestamp_utc
+      JSONB payload_json
+      TIMESTAMPTZ created_at
+    }
+
+    koi_causal_nodes {
+      TEXT user_id PK FK
+      TEXT node_id PK
+      VARCHAR node_type "X | V | Y"
+      TEXT description "nullable"
+      TEXT unit "nullable"
+    }
+
+    koi_causal_edges {
+      TEXT user_id PK FK
+      TEXT edge_id PK
+      TEXT src
+      TEXT dst
+      VARCHAR src_type
+      VARCHAR dst_type
+      VARCHAR status
+      FLOAT alpha
+      FLOAT beta
+      INT visit_count
+      INT last_touched_tick "nullable"
+      JSONB q_histogram_json
+      JSONB envs_seen_json
+      FLOAT q3_frequency
+    }
+
+    koi_causal_mechanisms {
+      TEXT user_id PK FK
+      TEXT mechanism_id PK
+      TEXT name
+      JSONB edge_ids_json
+      JSONB scope_json
+      TEXT narrative
+      VARCHAR status
+      TEXT archived_reason "nullable"
+      FLOAT alpha
+      FLOAT beta
+      INT visit_count
+      INT last_touched_tick "nullable"
+      JSONB q_histogram_json
+      JSONB envs_seen_json
+      INT inspection_count
+    }
 ```
 
 Not tables, on purpose:
 
-- **resource map** — Orca's in-memory state (`ResourceMap` wire contract);
-  updated when jobs reserve/release capacity, never by polling clouds.
 - **koi ticks** — `tick.started` / `tick.completed` events; `tick_id` is a
-  correlation string.
-- **ranks / ladders** — live inside `plans.actions_json`; no traversal in
-  the MVP, Orca gang-launches what a placement describes.
+  correlation string. FSM `tick` integers index `evidence_rows.tick`.
+
+**`resource_maps.pools_json`** holds `{capacity_type, clouds}` — the same
+hierarchical shape as `ResourceMap` (`clouds → regions → zones →
+network_fabrics → machine_pools`). Row columns `version` and `updated_at`
+mirror the wire contract. Orca `replace`s; Koi `get`s and calls
+`scheduling_summary()` for flat GPU counts.
+
+**`evidence_rows`** (Koi learning / replay — not Orca handoff): indexed
+columns in the diagram; heavy fields in `payload_json`. Query path:
+`EvidenceStore.recent(user_id, last_n_ticks=N)`.
+
+**`koi_causal_*`** (Koi topology + Beta confidence — not Orca handoff):
+three tables co-locate edge/mechanism metadata with topology. Koi loads at
+boot via `CausalGraphStore`, mutates in memory during a tick, syncs back
+with `sync_edge_metadata` / `sync_mechanisms` after S3 confidence updates.
+
+- **ranks / ladders** — live inside `plans.actions_json`; `evidence_rows.rank_id`
+  labels a ladder step in Koi only. No traversal in the MVP; Orca gang-launches
+  what a placement describes.
 
 ---
 
@@ -108,6 +189,11 @@ The same graph in text, useful for grep and for non-Mermaid renderers.
 users(user_id)   ← jobs.user_id          CASCADE
 users(user_id)   ← plans.user_id         CASCADE
 users(user_id)   ← credentials.user_id   CASCADE
+users(user_id)   ← resource_maps.user_id CASCADE
+users(user_id)   ← evidence_rows.user_id CASCADE
+users(user_id)   ← koi_causal_nodes.user_id CASCADE
+users(user_id)   ← koi_causal_edges.user_id CASCADE
+users(user_id)   ← koi_causal_mechanisms.user_id CASCADE
 
 jobs(job_id)     ← chains.job_id         CASCADE
 ```
@@ -144,6 +230,8 @@ Defined in `tandemn_system_data/db/orm.py`:
 - `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
 - `event_consumer_offsets`: primary key on `consumer_name`
 - `credentials`: (user_id); (expires_at)
+- `evidence_rows`: (user_id, tick); (user_id, job_id, tick)
+- `koi_causal_nodes`, `koi_causal_edges`, `koi_causal_mechanisms`: composite PK `(user_id, …)`
 
 ---
 

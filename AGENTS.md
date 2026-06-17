@@ -38,11 +38,11 @@ Current repo: tandemn-labs/tandemn-store
 
 `tandemn-store` is the canonical data layer for Tandemn (Orca + Koi + workers), not an application server.
 
-- **`tandemn_system_data`**: control-plane state (Postgres spine, Alembic, event log, credentials, JobStore, PlanStore, resource map contract).
+- **`tandemn_system_data`**: control-plane state (Postgres spine, Alembic, event log, credentials, JobStore, PlanStore, resource map contract, Koi `EvidenceRow` wire type).
 - **`tandemn_user_data`**: data-plane payloads (connectors, PayloadRef/OutputRef, worker fetch path). Must never import `tandemn_system_data` (enforced by import-linter).
 - **`DATA_ARCHITECTURE.md`** is the contract source of truth; keep it, Pydantic models, ORM, and Alembic migrations in sync.
 
-**Schema invariants:** spine is `users`, `jobs`, `plans`, `chains`, `events`(+offsets), `credentials`. Job statuses: `waiting | running | paused | finished`. Plans are `tick_rationale` + `actions_json`. Chains are job-scoped. Do not re-add `koi_ticks`, `ranks`, `plan_jobs`, `attempts`, `outcomes`, or `resource_maps` tables. No throughput columns; MVP gang-launches chains (no traversal).
+**Schema invariants:** spine is `users`, `jobs`, `plans`, `chains`, `events`(+offsets), `credentials`, `resource_maps`, plus Koi-only `evidence_rows` and `koi_causal_*` (nodes, edges+metadata, mechanisms+metadata). Job statuses: `waiting | running | paused | finished`. Plans are `tick_rationale` + `actions_json`. Chains are job-scoped. One `resource_maps` row per user; `pools_json` is hierarchical (`clouds → regions → zones → network_fabrics → machine_pools`). Do not re-add `koi_ticks`, `ranks`, `plan_jobs`, `attempts`, or `outcomes`. No throughput columns; MVP gang-launches chains (no traversal).
 
 **Boundaries:** user data bytes do not transit Orca or Postgres. No Tandemn-owned blob client in MVP. Workers use `tandemn_user_data` only. Orca/Koi integration belongs in `tandemn-system` / `tandemn-intelligence`, not here.
 
