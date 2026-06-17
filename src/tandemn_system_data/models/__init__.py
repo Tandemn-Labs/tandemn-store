@@ -37,7 +37,15 @@ from tandemn_system_data.models.evidence import (
 )
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
 from tandemn_system_data.models.plan import Plan, PlanAction
-from tandemn_system_data.models.resource_map import ResourceMap, ResourcePool
+from tandemn_system_data.models.resource_map import (
+    Cloud,
+    IntraMachineInterconnect,
+    MachinePool,
+    NetworkFabric,
+    Region,
+    ResourceMap,
+    Zone,
+)
 from tandemn_system_data.models.user import User
 
 __all__ = [
@@ -50,23 +58,28 @@ __all__ = [
     "ChainAllocation",
     "ChainRole",
     "ChainStatus",
+    "Cloud",
     "Credentials",
     "EdgeMetadata",
     "EnvLabel",
     "Event",
     "EventConsumerOffset",
     "EvidenceRow",
+    "IntraMachineInterconnect",
     "Job",
     "JobKind",
     "JobStatus",
+    "MachinePool",
     "MechanismMetadata",
+    "NetworkFabric",
     "Plan",
     "PlanAction",
     "ReasonCode",
+    "Region",
     "ResourceMap",
-    "ResourcePool",
     "RunningJob",
     "User",
+    "Zone",
     "envs_seen_from_json",
     "envs_seen_to_json",
     "evidence_payload_from_row",
