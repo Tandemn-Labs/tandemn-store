@@ -43,8 +43,15 @@ from tandemn_system_data.models import (
     MechanismMetadata,
     Plan,
     PlanAction,
-    ResourcePool,
     format_evidence_row_id,
+)
+from tandemn_system_data.models.resource_map import (
+    Cloud,
+    MachinePool,
+    NetworkFabric,
+    Region,
+    ResourceMap,
+    Zone,
 )
 from tests.conftest import REPO_ROOT
 
@@ -345,23 +352,63 @@ def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
 # ----- Resource map (Postgres) ------------------------------------------------
 
 
-def _pools(available: int) -> dict[str, dict[str, ResourcePool]]:
-    return {"aws": {"g6e.12xlarge": ResourcePool(total=8, available=available)}}
+def _sample_resource_map(available_instances: int) -> ResourceMap:
+    return ResourceMap(
+        capacity_type=["reserved"],
+        clouds={
+            "aws": Cloud(
+                regions={
+                    "us-east-2": Region(
+                        zones={
+                            "use2-az3": Zone(
+                                network_fabrics={
+                                    "efa-cluster-a": NetworkFabric(
+                                        fabric_type="efa",
+                                        gpu_direct_rdma=True,
+                                        machine_pools={
+                                            "g6e.12xlarge": MachinePool(
+                                                instance_family="g6",
+                                                gpu_type="L40S",
+                                                gpus_per_instance=4,
+                                                total_instances=8,
+                                                available_instances=available_instances,
+                                            )
+                                        },
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        },
+    )
+
+
+def _g6e_pool(resource_map: ResourceMap) -> MachinePool:
+    return (
+        resource_map.clouds["aws"]
+        .regions["us-east-2"]
+        .zones["use2-az3"]
+        .network_fabrics["efa-cluster-a"]
+        .machine_pools["g6e.12xlarge"]
+    )
 
 
 def test_resource_map_store_postgres(pg_client: PostgresClient, user_id: str):
     store = ResourceMapStore(pg_client, user_id=user_id)
 
     assert store.get().version == 0
-    assert store.get().pools == {}
+    assert store.get().clouds == {}
 
-    first = store.replace(_pools(available=5))
+    first = store.replace(_sample_resource_map(available_instances=5))
     assert first.version == 1
-    assert first.pools["aws"]["g6e.12xlarge"].available == 5
+    assert _g6e_pool(first).available_instances == 5
+    assert first.scheduling_summary()["aws|us-east-2|use2-az3|L40S"]["free"] == 20
 
-    second = store.replace(_pools(available=3))
+    second = store.replace(_sample_resource_map(available_instances=3))
     assert second.version == 2
-    assert store.get().pools["aws"]["g6e.12xlarge"].available == 3
+    assert _g6e_pool(store.get()).available_instances == 3
 
     other = ResourceMapStore(pg_client, user_id=new_user_id())
     assert other.get().version == 0
