@@ -287,7 +287,10 @@ Wire shape (abbreviated):
 
 Koi reads the tree via ``ResourceMapStore.get`` and flattens total GPU
 capacity with ``ResourceMap.scheduling_summary()`` (env_key =
-``market|cloud|region|zone|gpu_type``).
+``market|cloud|region|zone|gpu_type``). Pools that share an env_key (same
+zone + gpu_type across fabrics/instance types) are aggregated: ``total`` /
+``total_instances`` sum, and each pool's fabric/instance/price detail is
+kept in the entry's ``pools`` list.
 
 The pass produces one `plan`: a cluster-wide rationale plus one action
 per job it considered:

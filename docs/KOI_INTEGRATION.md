@@ -101,7 +101,7 @@ waiting = jobs.waiting_jobs(user_id)
 running = jobs.running_jobs(user_id)   # RunningJob: job + active chains
 paused = jobs.paused_jobs(user_id)
 resource_map = ResourceMapStore(pg, user_id=user_id).get()
-capacity = resource_map.scheduling_summary()  # env_key -> {total, gpu_type, price_per_instance_hour, ...}
+capacity = resource_map.scheduling_summary()  # env_key -> {total, gpu_type, pools: [...], ...}
 ```
 
 `running_jobs` is the important job read — each `RunningJob` has `job` plus
@@ -113,8 +113,9 @@ Resource map shape: hierarchical `ResourceMap.clouds` (cloud → region → zone
 `gpus_per_instance`, `gpu_type`, and optional `price_per_instance_hour`. Row
 columns `version` / `updated_at` plus `pools_json` `{market, clouds}` in
 Postgres. Total capacity only — infer free capacity from `running_jobs`.
-`scheduling_summary()` env_key is `market|cloud|region|zone|gpu_type`. See
-`src/tandemn_system_data/models/resource_map.py`.
+`scheduling_summary()` env_key is `market|cloud|region|zone|gpu_type`; pools
+sharing a key are aggregated (`total` sums) with per-pool detail in `pools`.
+See `src/tandemn_system_data/models/resource_map.py`.
 
 **Orca dependency:** until Orca wires the reconciler to call
 `ResourceMapStore.replace` on place/preempt/swap/finish, the row may be empty

@@ -82,9 +82,11 @@ class ResourceMap(CanonicalModel):
         """Flat env_key -> GPU capacity for Koi placement checks.
 
         env_key is ``market|cloud|region|zone|gpu_type`` (one entry per
-        market). Values are total GPU/instance capacity plus fabric, price,
-        and instance metadata. Free capacity is not stored — Koi infers it
-        from running jobs.
+        market). Multiple machine pools can share an env_key (e.g. two A100
+        pools on different fabrics/instance types in the same zone); their
+        ``total`` / ``total_instances`` are summed and each pool's
+        fabric/instance/price detail is preserved in the ``pools`` list.
+        Free capacity is not stored — Koi infers it from running jobs.
         """
         summary: dict[str, dict[str, Any]] = {}
         for (
@@ -98,18 +100,31 @@ class ResourceMap(CanonicalModel):
         ) in self.iter_machine_pools():
             for market in self.market:
                 env_key = "|".join((market, cloud_id, region_id, zone_id, pool.gpu_type))
-                summary[env_key] = {
-                    "total": pool.total_gpus,
-                    "total_instances": pool.total_instances,
-                    "gpu_type": pool.gpu_type,
-                    "price_per_instance_hour": pool.price_per_instance_hour,
-                    "market": market,
-                    "cloud": cloud_id,
-                    "region": region_id,
-                    "zone": zone_id,
+                pool_detail = {
                     "fabric_id": fabric_id,
-                    "instance_type": instance_type,
                     "fabric_type": fabric.fabric_type,
                     "gpu_direct_rdma": fabric.gpu_direct_rdma,
+                    "instance_type": instance_type,
+                    "instance_family": pool.instance_family,
+                    "total": pool.total_gpus,
+                    "total_instances": pool.total_instances,
+                    "gpus_per_instance": pool.gpus_per_instance,
+                    "price_per_instance_hour": pool.price_per_instance_hour,
                 }
+                entry = summary.get(env_key)
+                if entry is None:
+                    summary[env_key] = {
+                        "total": pool.total_gpus,
+                        "total_instances": pool.total_instances,
+                        "gpu_type": pool.gpu_type,
+                        "market": market,
+                        "cloud": cloud_id,
+                        "region": region_id,
+                        "zone": zone_id,
+                        "pools": [pool_detail],
+                    }
+                else:
+                    entry["total"] += pool.total_gpus
+                    entry["total_instances"] += pool.total_instances
+                    entry["pools"].append(pool_detail)
         return summary
