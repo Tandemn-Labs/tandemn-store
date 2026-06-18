@@ -363,7 +363,7 @@ def _evidence_row(tick: int, job_id: str, rank_id: str) -> EvidenceRow:
         deploy_timestamp_utc=float(tick),
         job_id=job_id,
         rank_id=rank_id,
-        env_label=("aws", "us-east-1", "on-demand", "H100"),
+        env_label=("reserved", "aws", "us-east-1", "use1-az1", "H100"),
         X={"n": tick},
         W_observed={"tps": float(tick)},
         V_observed_trajectory={"latency": [1.0]},
@@ -508,13 +508,19 @@ def test_causal_graph_store_postgres(pg_client: PostgresClient, user_id: str):
 
     loaded_edge_meta[edge_id].alpha = 2.5
     loaded_edge_meta[edge_id].visit_count = 3
-    loaded_edge_meta[edge_id].envs_seen.add(("aws", "us-east-1", "on_demand", "H100"))
+    loaded_edge_meta[edge_id].envs_seen.add(("reserved", "aws", "us-east-1", "use1-az1", "H100"))
     store.sync_edge_metadata(loaded_edge_meta)
 
     _, reloaded_meta = store.load_edges()
     assert reloaded_meta[edge_id].alpha == 2.5
     assert reloaded_meta[edge_id].visit_count == 3
-    assert ("aws", "us-east-1", "on_demand", "H100") in reloaded_meta[edge_id].envs_seen
+    assert (
+        "reserved",
+        "aws",
+        "us-east-1",
+        "use1-az1",
+        "H100",
+    ) in reloaded_meta[edge_id].envs_seen
 
     loaded_mechs[mechanism_id].status = "archived"
     loaded_mechs[mechanism_id].archived_reason = "superseded"

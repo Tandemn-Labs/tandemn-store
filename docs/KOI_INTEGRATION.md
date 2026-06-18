@@ -179,7 +179,7 @@ rows = [
         deploy_timestamp_utc=time.time(),
         job_id=job_id,
         rank_id=rank_id,
-        env_label=("aws", "us-east-1", "on-demand", "H100"),
+        env_label=("reserved", "aws", "us-east-1", "use1-az1", "H100"),
         X={...},
         W_observed={...},
         # trajectories, CUSUM/ICP snapshots, etc.

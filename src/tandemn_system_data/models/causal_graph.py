@@ -28,8 +28,8 @@ def envs_seen_from_json(raw: Any) -> set[EnvLabel]:
         return set()
     result: set[EnvLabel] = set()
     for item in raw:
-        if isinstance(item, (list, tuple)) and len(item) == 4:
-            result.add((str(item[0]), str(item[1]), str(item[2]), str(item[3])))
+        if isinstance(item, (list, tuple)) and len(item) >= 5:
+            result.add((str(item[0]), str(item[1]), str(item[2]), str(item[3]), str(item[4])))
     return result
 
 

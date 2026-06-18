@@ -19,8 +19,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-# (cloud, region, market, gpu_type)
-EnvLabel = tuple[str, str, str, str]
+# (market, cloud, region, zone, gpu_type)
+EnvLabel = tuple[str, str, str, str, str]
 
 _INDEXED_FIELDS = frozenset({"row_id", "tick", "deploy_timestamp_utc", "job_id", "rank_id"})
 
@@ -63,11 +63,11 @@ def evidence_payload_from_row(
     payload: dict[str, Any],
 ) -> EvidenceRow:
     """Rehydrate an ``EvidenceRow`` from indexed columns + payload JSON."""
-    env = payload.get("env_label", ["", "", "", ""])
-    if isinstance(env, list):
-        env_label: EnvLabel = (env[0], env[1], env[2], env[3])
+    env = payload.get("env_label", ["", "", "", "", ""])
+    if isinstance(env, (list, tuple)) and len(env) >= 5:
+        env_label: EnvLabel = (env[0], env[1], env[2], env[3], env[4])
     else:
-        env_label = ("", "", "", "")
+        env_label = ("", "", "", "", "")
     return EvidenceRow(
         row_id=row_id,
         tick=tick,
@@ -111,7 +111,7 @@ class EvidenceRow:
     deploy_timestamp_utc: float  # forensics; replay anchoring
     job_id: str
     rank_id: str
-    env_label: EnvLabel  # (cloud, region, market, gpu_type)
+    env_label: EnvLabel  # (market, cloud, region, zone, gpu_type)
     X: dict[str, object]  # ~60 decision variables
     W_observed: dict[str, float]  # 22 workload features
     # Values are np.ndarray at runtime in Koi; Any keeps numpy out of this package.
