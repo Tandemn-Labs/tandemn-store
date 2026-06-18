@@ -61,7 +61,7 @@ erDiagram
       TEXT job_id FK
       TEXT plan_id "provenance, no FK"
       VARCHAR role "prefill | decode | aggregate"
-      JSONB shape_json "gpu, count, tp, pp"
+      JSONB shape_json "gpu, count (required), tp, pp"
       TEXT target_node "nullable"
       VARCHAR status "launching | running | stopped | failed"
       TIMESTAMPTZ created_at

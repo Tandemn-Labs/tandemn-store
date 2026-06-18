@@ -34,6 +34,20 @@ ACTIVE_CHAIN_STATUSES: tuple[ChainStatus, ...] = (
 )
 
 
+def _require_shape_count(chain: Chain) -> None:
+    """Every launched chain must declare its GPU count in shape_json.
+
+    Capacity accounting (free = total - GPUs used by running chains) reads
+    ``shape_json["count"]`` directly; there is no parallelism-derived
+    fallback, so a missing or non-positive count is rejected at launch.
+    """
+    count = chain.shape_json.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise ValueError(
+            f"chain {chain.chain_id} shape_json must include a positive int 'count'; got {count!r}"
+        )
+
+
 class JobStore:
     """One instance per process, sharing the caller's PostgresClient."""
 
@@ -78,7 +92,13 @@ class JobStore:
 
     def launch_chains(self, chains: list[Chain]) -> list[Chain]:
         """Gang launch: insert every chain of a placement in one
-        transaction (all or nothing)."""
+        transaction (all or nothing).
+
+        Each chain's shape_json must declare a positive int ``count`` (GPUs
+        for that chain); the whole gang is rejected if any chain omits it.
+        """
+        for chain in chains:
+            _require_shape_count(chain)
         with self._client.begin() as s:
             for chain in chains:
                 s.add(ChainRow(**chain.model_dump()))

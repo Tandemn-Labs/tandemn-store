@@ -265,9 +265,24 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
 
     launched = store.launch_chains(
         [
-            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.PREFILL),
-            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.PREFILL),
-            Chain(job_id=job.job_id, plan_id=plan.plan_id, role=ChainRole.DECODE),
+            Chain(
+                job_id=job.job_id,
+                plan_id=plan.plan_id,
+                role=ChainRole.PREFILL,
+                shape_json={"gpu": "H100", "count": 8},
+            ),
+            Chain(
+                job_id=job.job_id,
+                plan_id=plan.plan_id,
+                role=ChainRole.PREFILL,
+                shape_json={"gpu": "H100", "count": 8},
+            ),
+            Chain(
+                job_id=job.job_id,
+                plan_id=plan.plan_id,
+                role=ChainRole.DECODE,
+                shape_json={"gpu": "A100", "count": 8},
+            ),
         ]
     )
     store.transition(job.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
@@ -286,6 +301,33 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
     mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == job.job_id)
     assert len(mine.chains) == 3
     assert {c.role for c in mine.chains} == {ChainRole.PREFILL, ChainRole.DECODE}
+
+
+def test_launch_chains_requires_shape_count(store: JobStore, user_id: str):
+    """A chain without a positive int shape_json['count'] is rejected, and
+    the whole gang is refused (no partial launch)."""
+    job = store.submit(Job(user_id=user_id, kind=JobKind.BATCH))
+
+    for bad_shape in ({}, {"gpu": "H100"}, {"count": 0}, {"count": "8"}):
+        with pytest.raises(ValueError, match="count"):
+            store.launch_chains(
+                [Chain(job_id=job.job_id, role=ChainRole.AGGREGATE, shape_json=bad_shape)]
+            )
+
+    # Mixed gang: the valid chain is not persisted because one is invalid.
+    with pytest.raises(ValueError, match="count"):
+        store.launch_chains(
+            [
+                Chain(
+                    job_id=job.job_id,
+                    role=ChainRole.PREFILL,
+                    shape_json={"gpu": "H100", "count": 8},
+                ),
+                Chain(job_id=job.job_id, role=ChainRole.DECODE, shape_json={"gpu": "A100"}),
+            ]
+        )
+    store.transition(job.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
+    assert next(r for r in store.running_jobs(user_id) if r.job.job_id == job.job_id).chains == []
 
 
 # ----- Event log --------------------------------------------------------------

@@ -211,7 +211,10 @@ Key column notes:
   `chains.plan_id` is provenance only, no FK.
 - `chains.shape_json` carries hardware and parallelism together:
   `{"gpu": "H100", "count": 8, "tp": 2, "pp": 4}`. Prefill and decode
-  chains of the same job may have different shapes.
+  chains of the same job may have different shapes. `count` (the GPU
+  count for the chain) is required — `JobStore.launch_chains` rejects a
+  chain without a positive int `count`, since capacity accounting reads
+  it directly.
 - `credentials.secret_payload` is encrypted at rest. Workers never read this table directly.
 - `event_consumer_offsets` tracks each consumer's cursor into the Postgres
   event log. Consumers update their cursor only after successful processing.

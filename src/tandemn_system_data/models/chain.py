@@ -6,7 +6,10 @@ no FK, so plans and chains have independent lifecycles.
 
 shape_json carries everything about the hardware and parallelism, e.g.
 {"gpu": "H100", "count": 8, "tp": 2, "pp": 4}. Prefill and decode
-chains of the same job may have different shapes.
+chains of the same job may have different shapes. ``count`` (the GPU
+count for the chain) is required at launch — JobStore.launch_chains
+rejects any chain without a positive int ``count`` because capacity
+accounting reads it directly.
 """
 
 from __future__ import annotations
