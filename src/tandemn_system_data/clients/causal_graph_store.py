@@ -8,9 +8,7 @@ handoff surface.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.db.orm import (
@@ -30,8 +28,15 @@ from tandemn_system_data.models.causal_graph import (
 
 _DEFAULT_Q = {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}
 
+# Nodes and edges (graph topology) are seeded into Postgres outside this
+# store and are read-only at runtime. The store therefore exposes no
+# node/edge write path: only load_* (boot), sync_edge_metadata (edge Beta
+# updates), and the mechanism methods (mechanisms are added/archived at
+# runtime). node_to_row / edge_to_row are the model->row converters a
+# seeder uses.
 
-def _node_to_row(user_id: str, node: CausalNode) -> KoiCausalNodeRow:
+
+def node_to_row(user_id: str, node: CausalNode) -> KoiCausalNodeRow:
     return KoiCausalNodeRow(
         user_id=user_id,
         node_id=node.node_id,
@@ -50,7 +55,7 @@ def _node_from_row(row: KoiCausalNodeRow) -> CausalNode:
     )
 
 
-def _edge_to_row(user_id: str, edge: CausalEdge, metadata: EdgeMetadata) -> KoiCausalEdgeRow:
+def edge_to_row(user_id: str, edge: CausalEdge, metadata: EdgeMetadata) -> KoiCausalEdgeRow:
     return KoiCausalEdgeRow(
         user_id=user_id,
         edge_id=edge.edge_id,
@@ -187,25 +192,6 @@ class CausalGraphStore:
             mechanism_table[mechanism.mechanism_id] = mechanism
             metadata_table[metadata.mechanism_id] = metadata
         return mechanism_table, metadata_table
-
-    def replace_nodes(self, nodes: Iterable[CausalNode]) -> None:
-        materialized = list(nodes)
-        with self._client.begin() as s:
-            s.execute(delete(KoiCausalNodeRow).where(KoiCausalNodeRow.user_id == self._user_id))
-            for node in materialized:
-                s.add(_node_to_row(self._user_id, node))
-
-    def replace_edges(
-        self,
-        edges: Iterable[CausalEdge],
-        metadata: dict[str, EdgeMetadata],
-    ) -> None:
-        materialized = list(edges)
-        with self._client.begin() as s:
-            s.execute(delete(KoiCausalEdgeRow).where(KoiCausalEdgeRow.user_id == self._user_id))
-            for edge in materialized:
-                edge_metadata = metadata[edge.edge_id]
-                s.add(_edge_to_row(self._user_id, edge, edge_metadata))
 
     def sync_edge_metadata(self, metadata: dict[str, EdgeMetadata]) -> None:
         if not metadata:

@@ -18,6 +18,7 @@ from tandemn_system_data.clients import (
     PostgresEventLog,
     ResourceMapStore,
 )
+from tandemn_system_data.clients.causal_graph_store import edge_to_row, node_to_row
 from tandemn_system_data.db import ALL_TABLES, ChainRow, EventRow, JobRow, PlanRow, UserRow
 from tandemn_system_data.ids import (
     new_chain_id,
@@ -494,8 +495,14 @@ def test_causal_graph_store_postgres(pg_client: PostgresClient, user_id: str):
         mechanism_id: MechanismMetadata(mechanism_id=mechanism_id),
     }
 
-    store.replace_nodes(nodes.values())
-    store.replace_edges(edges.values(), edge_metadata)
+    # Nodes and edges are seeded outside the store (external seeder); the
+    # store itself only loads them and syncs metadata. Simulate the seed by
+    # writing ORM rows directly via the converters.
+    with pg_client.begin() as s:
+        for node in nodes.values():
+            s.add(node_to_row(user_id, node))
+        for edge in edges.values():
+            s.add(edge_to_row(user_id, edge, edge_metadata[edge.edge_id]))
     store.sync_mechanisms(mechanisms, mechanism_metadata)
 
     loaded_nodes = store.load_nodes()
