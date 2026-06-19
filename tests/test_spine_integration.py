@@ -377,6 +377,25 @@ def _evidence_row(tick: int, job_id: str, rank_id: str) -> EvidenceRow:
     )
 
 
+def _rich_evidence_row(
+    tick: int,
+    job_id: str,
+    rank_id: str,
+    *,
+    env_label=("reserved", "aws", "us-east-1", "use1-az1", "H100"),
+    workload_type: str = "online",
+    mechanism_ids: list[str] | None = None,
+    edge_ids: list[str] | None = None,
+) -> EvidenceRow:
+    row = _evidence_row(tick, job_id, rank_id)
+    row.env_label = env_label
+    row.W_observed = {"type": workload_type}
+    row.mechanism_ids = list(mechanism_ids or [])
+    row.icp_result_per_edge = dict.fromkeys(edge_ids or [], "accept")
+    row.q_label_per_mechanism = dict.fromkeys(row.mechanism_ids, "Q1")
+    return row
+
+
 def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
     store = EvidenceStore(pg_client)
     job_id = new_job_id()
@@ -390,6 +409,79 @@ def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
 
     fetched = store.get(format_evidence_row_id(12, job_id, "prefill-0"))
     assert fetched is not None and fetched.X == {"n": 12}
+
+
+def test_evidence_store_query_helpers(pg_client: PostgresClient, user_id: str):
+    store = EvidenceStore(pg_client)
+    job_a, job_b = new_job_id(), new_job_id()
+    env_a = ("reserved", "aws", "us-east-1", "use1-az1", "H100")
+    env_b = ("reserved", "aws", "us-west-2", "usw2-az1", "A100")
+
+    rows = [
+        _rich_evidence_row(
+            1,
+            job_a,
+            "rank-0",
+            env_label=env_a,
+            workload_type="online",
+            mechanism_ids=["M1"],
+            edge_ids=["e1"],
+        ),
+        _rich_evidence_row(
+            2,
+            job_a,
+            "rank-0",
+            env_label=env_b,
+            workload_type="batch",
+            mechanism_ids=["M1", "M2"],
+            edge_ids=["e1", "e2"],
+        ),
+        _rich_evidence_row(
+            3,
+            job_b,
+            "rank-1",
+            env_label=env_a,
+            workload_type="online",
+            mechanism_ids=["M2"],
+            edge_ids=["e2"],
+        ),
+    ]
+    store.put_many(user_id, rows)
+
+    assert store.current_tick(user_id) == 3
+    assert [r.row_id for r in store.rows_in_window(user_id, 1, 2)] == [
+        rows[0].row_id,
+        rows[1].row_id,
+    ]
+    assert [r.row_id for r in store.rows_for_job(user_id, job_a)] == [
+        rows[0].row_id,
+        rows[1].row_id,
+    ]
+    assert [r.row_id for r in store.rows_for_rank(user_id, job_a, "rank-0")] == [
+        rows[0].row_id,
+        rows[1].row_id,
+    ]
+    assert [r.row_id for r in store.rows_for_edge(user_id, "e1")] == [
+        rows[0].row_id,
+        rows[1].row_id,
+    ]
+    assert [r.row_id for r in store.rows_for_edge(user_id, "e1", limit=1)] == [rows[1].row_id]
+    assert [r.row_id for r in store.rows_for_mechanism(user_id, "M2")] == [
+        rows[1].row_id,
+        rows[2].row_id,
+    ]
+    assert [r.row_id for r in store.rows_for_environment(user_id, env_a)] == [
+        rows[0].row_id,
+        rows[2].row_id,
+    ]
+    assert [r.row_id for r in store.recently_decided(user_id, 1, tick=3)] == [
+        rows[1].row_id,
+        rows[2].row_id,
+    ]
+    assert [r.row_id for r in store.retrieve_similar_rows(user_id, {"type": "online"})] == [
+        rows[0].row_id,
+        rows[2].row_id,
+    ]
 
 
 # ----- Resource map (Postgres) ------------------------------------------------
