@@ -392,6 +392,38 @@ def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
     assert fetched is not None and fetched.X == {"n": 12}
 
 
+def test_evidence_store_query_methods(pg_client: PostgresClient, user_id: str):
+    """The EvidenceService-backing queries: tick, window, job/rank, and the
+    payload-filtered edge/mechanism/environment lookups."""
+    store = EvidenceStore(pg_client)
+    job_a, job_b = new_job_id(), new_job_id()
+
+    def _row(tick: int, job_id: str, rank_id: str, *, edge: str, mech: str) -> EvidenceRow:
+        base = _evidence_row(tick, job_id, rank_id)
+        base.icp_result_per_edge = {edge: "accept"}
+        base.mechanism_ids = [mech]
+        return base
+
+    store.put(user_id, _row(1, job_a, "r0", edge="e1", mech="M1"))
+    store.put(user_id, _row(2, job_a, "r0", edge="e1", mech="M2"))
+    store.put(user_id, _row(3, job_b, "r1", edge="e2", mech="M1"))
+
+    assert store.current_tick(user_id) == 3
+
+    assert {r.tick for r in store.rows_in_window(user_id, 1, 2)} == {1, 2}
+    assert {r.job_id for r in store.rows_for_job(user_id, job_a)} == {job_a}
+    assert [r.tick for r in store.rows_for_rank(user_id, job_a, "r0")] == [1, 2]
+
+    assert {r.tick for r in store.rows_for_edge(user_id, "e1")} == {1, 2}
+    assert [r.tick for r in store.rows_for_edge(user_id, "e1", limit=1)] == [2]
+    assert {r.tick for r in store.rows_for_mechanism(user_id, "M1")} == {1, 3}
+
+    env = ("reserved", "aws", "us-east-1", "use1-az1", "H100")
+    assert {r.tick for r in store.rows_for_environment(user_id, env)} == {1, 2, 3}
+
+    assert {r.tick for r in store.recently_decided(user_id, window=1)} == {2, 3}
+
+
 # ----- Resource map (Postgres) ------------------------------------------------
 
 
