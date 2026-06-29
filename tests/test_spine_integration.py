@@ -252,6 +252,8 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
                         {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
                     ],
                     target_tps=1500,
+                    target_p99_ttft_ms=500,
+                    target_p99_tpot_ms=50,
                 )
             ],
         )
@@ -262,6 +264,8 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
     assert plan.plan_id in {p.plan_id for p in pending}
     fetched = next(p for p in pending if p.plan_id == plan.plan_id)
     assert fetched.actions[0].type is ActionType.PLACE
+    assert fetched.actions[0].target_p99_ttft_ms == 500
+    assert fetched.actions[0].target_p99_tpot_ms == 50
     assert fetched.actions[0].ladder[0]["prefill"]["count"] == 8
 
     launched = store.launch_chains(

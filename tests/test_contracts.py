@@ -68,6 +68,8 @@ def test_plan_is_rationale_plus_actions_and_round_trips_json():
                 type=ActionType.PLACE,
                 ladder=[{"prefill": {"gpu": "H100", "count": 8, "chains": 2}}],
                 target_tps=1500,
+                target_p99_ttft_ms=500,
+                target_p99_tpot_ms=50,
             ),
             PlanAction(job_id="job_d", type=ActionType.DEFER),
             PlanAction(job_id="job_e", type=ActionType.PREEMPT),
@@ -76,6 +78,8 @@ def test_plan_is_rationale_plus_actions_and_round_trips_json():
     assert {a.value for a in ActionType} == {"place", "keep", "defer", "preempt", "swap"}
     # actions_json is JSONB in Postgres; the typed list must survive.
     assert Plan.model_validate_json(plan.model_dump_json()) == plan
+    assert plan.actions[0].target_p99_ttft_ms == 500
+    assert plan.actions[0].target_p99_tpot_ms == 50
     with pytest.raises(ValidationError):
         PlanAction(job_id="job_a", type="explode")  # type: ignore[arg-type]
 
