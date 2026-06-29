@@ -3,6 +3,11 @@
 Koi reads the last N FSM ticks before each pass to drive CUSUM/ICP and
 surrogate updates. Rows are keyed by ``row_id``; ``user_id`` + ``tick``
 are indexed for ``recent()`` queries. Not an Orca handoff surface.
+
+Indexed columns (``user_id``, ``tick``, ``job_id``, ``rank_id``) back the
+fast queries; lookups that filter on payload fields (edge, mechanism, env,
+workload type) scan the user's rows in Python because those fields live in
+``payload_json``, not in indexed columns.
 """
 
 from __future__ import annotations
