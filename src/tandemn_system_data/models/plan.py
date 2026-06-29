@@ -39,6 +39,8 @@ class PlanAction(CanonicalModel):
     type: ActionType
     ladder: list[dict[str, Any]] | None = None  # place / swap
     target_tps: float | None = None
+    target_p99_ttft_ms: float | None = None
+    target_p99_tpot_ms: float | None = None
 
 
 class Plan(CanonicalModel):
