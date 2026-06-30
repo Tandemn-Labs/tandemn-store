@@ -35,6 +35,10 @@ from tandemn_system_data.models.evidence import (
     evidence_row_to_payload,
     format_evidence_row_id,
 )
+from tandemn_system_data.models.hardware_catalog import (
+    DEFAULT_HARDWARE_CATALOG_KEY,
+    HardwareCatalog,
+)
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
 from tandemn_system_data.models.plan import Plan, PlanAction
 from tandemn_system_data.models.resource_map import (
@@ -49,6 +53,7 @@ from tandemn_system_data.models.resource_map import (
 from tandemn_system_data.models.user import User
 
 __all__ = [
+    "DEFAULT_HARDWARE_CATALOG_KEY",
     "ActionType",
     "CanonicalModel",
     "CausalEdge",
@@ -65,6 +70,7 @@ __all__ = [
     "Event",
     "EventConsumerOffset",
     "EvidenceRow",
+    "HardwareCatalog",
     "IntraMachineInterconnect",
     "Job",
     "JobKind",

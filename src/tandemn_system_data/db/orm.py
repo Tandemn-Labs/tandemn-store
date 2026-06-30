@@ -208,6 +208,19 @@ class ResourceMapRow(Base):
 
 
 # ---------------------------------------------------------------------------
+# hardware_catalogs (Orca — latest cloud hardware/pricing snapshot)
+# ---------------------------------------------------------------------------
+
+
+class HardwareCatalogRow(Base):
+    __tablename__ = "hardware_catalogs"
+
+    catalog_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    catalog: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+# ---------------------------------------------------------------------------
 # Koi evidence (learning / replay — not Orca handoff)
 # ---------------------------------------------------------------------------
 
@@ -306,6 +319,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     EventConsumerOffsetRow,
     CredentialsRow,
     ResourceMapRow,
+    HardwareCatalogRow,
     EvidenceRowRow,
     KoiCausalNodeRow,
     KoiCausalEdgeRow,
