@@ -221,6 +221,52 @@ class HardwareCatalogRow(Base):
 
 
 # ---------------------------------------------------------------------------
+# gpu_metrics (Orca — append-only GPU/inference telemetry timeseries)
+# ---------------------------------------------------------------------------
+
+
+class GpuMetricRow(Base):
+    __tablename__ = "gpu_metrics"
+
+    metric_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    # Wall-clock sample time; the timeseries axis.
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Dynamo graph deployment the sample belongs to (e.g. "qwen3-06b-l4").
+    deployment_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # One row per physical GPU. GPU hardware metrics are scoped to this GPU;
+    # inference metrics are scoped to the worker that owns it (worker_id).
+    gpu_uuid: Mapped[str] = mapped_column(Text, nullable=False)
+    # Tandemn job model, coarse -> fine:
+    #   rank_id    ladder rung (a rank config); realized by N chains / DP replicas
+    #   chain_id   one serving unit == one worker (a DP replica within the rank)
+    #   worker_id  the worker pod
+    #   local_rank the GPU's index inside its worker (0..count-1 for TP/PP)
+    rank_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chain_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    local_rank: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # PD-disaggregation role of the GPU's chain: "prefill" | "decode" | NULL
+    # (aggregated worker). Prefill and decode chains have different shapes and
+    # very different metric profiles, so role is stored to group/compare them.
+    role: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    node_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instance_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The 28 tracked metric values; nullable inside JSON when a metric is
+    # topology/config-gated and not produced by the current deployment.
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_gpu_metrics_deployment_ts", "deployment_id", "ts"),
+        Index("ix_gpu_metrics_gpu_ts", "gpu_uuid", "ts"),
+        Index("ix_gpu_metrics_chain_ts", "chain_id", "ts"),
+        Index("ix_gpu_metrics_rank_ts", "rank_id", "ts"),
+        Index("ix_gpu_metrics_role_ts", "role", "ts"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Koi evidence (learning / replay — not Orca handoff)
 # ---------------------------------------------------------------------------
 
@@ -320,6 +366,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     CredentialsRow,
     ResourceMapRow,
     HardwareCatalogRow,
+    GpuMetricRow,
     EvidenceRowRow,
     KoiCausalNodeRow,
     KoiCausalEdgeRow,

@@ -14,6 +14,7 @@ from tandemn_system_data.clients.credentials_store import (
 )
 from tandemn_system_data.clients.event_log import PostgresEventLog
 from tandemn_system_data.clients.evidence_store import EvidenceStore
+from tandemn_system_data.clients.gpu_metric_store import GpuMetricStore
 from tandemn_system_data.clients.hardware_catalog import HardwareCatalogStore
 from tandemn_system_data.clients.jobs import JobStore
 from tandemn_system_data.clients.plans import PlanStore
@@ -27,6 +28,7 @@ __all__ = [
     "CredentialNotFound",
     "CredentialStore",
     "EvidenceStore",
+    "GpuMetricStore",
     "HardwareCatalogStore",
     "JobStore",
     "PlanStore",

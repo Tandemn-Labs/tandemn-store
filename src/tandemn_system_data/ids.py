@@ -33,6 +33,7 @@ Kind = Literal[
     "chain",
     "event",
     "credentials",
+    "gpu_metric",
 ]
 
 PREFIXES: dict[Kind, str] = {
@@ -43,6 +44,7 @@ PREFIXES: dict[Kind, str] = {
     "chain": "chain",
     "event": "evt",
     "credentials": "cred",
+    "gpu_metric": "gpum",
 }
 
 
@@ -96,6 +98,10 @@ def new_event_id() -> str:
 
 def new_credentials_ref() -> str:
     return new_id("credentials")
+
+
+def new_gpu_metric_id() -> str:
+    return new_id("gpu_metric")
 
 
 # ---------------------------------------------------------------------------

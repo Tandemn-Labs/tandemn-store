@@ -35,6 +35,11 @@ from tandemn_system_data.models.evidence import (
     evidence_row_to_payload,
     format_evidence_row_id,
 )
+from tandemn_system_data.models.gpu_metric import (
+    GpuMetric,
+    gpu_metric_from_row,
+    gpu_metric_to_metrics,
+)
 from tandemn_system_data.models.hardware_catalog import (
     DEFAULT_HARDWARE_CATALOG_KEY,
     HardwareCatalog,
@@ -70,6 +75,7 @@ __all__ = [
     "Event",
     "EventConsumerOffset",
     "EvidenceRow",
+    "GpuMetric",
     "HardwareCatalog",
     "IntraMachineInterconnect",
     "Job",
@@ -91,5 +97,7 @@ __all__ = [
     "evidence_payload_from_row",
     "evidence_row_to_payload",
     "format_evidence_row_id",
+    "gpu_metric_from_row",
+    "gpu_metric_to_metrics",
     "utc_now",
 ]
