@@ -76,7 +76,6 @@ def evidence_payload_from_row(
         rank_id=rank_id,
         env_label=env_label,
         X=payload.get("X", {}),
-        W_observed=payload.get("W_observed", {}),
         V_observed_trajectory=payload.get("V_observed_trajectory", {}),
         V_predicted_trajectory=payload.get("V_predicted_trajectory", {}),
         y_observed_trajectory=payload.get("y_observed_trajectory", {}),
@@ -113,7 +112,6 @@ class EvidenceRow:
     rank_id: str
     env_label: EnvLabel  # (market, cloud, region, zone, gpu_type)
     X: dict[str, object]  # ~60 decision variables
-    W_observed: dict[str, float]  # 22 workload features
     # Values are np.ndarray at runtime in Koi; Any keeps numpy out of this package.
     V_observed_trajectory: dict[str, Any]  # sub-tick V samples (all measured V's)
     V_predicted_trajectory: dict[str, Any]  # surrogate's V_hat(t)

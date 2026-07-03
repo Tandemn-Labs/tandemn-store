@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from tandemn_system_data.clients.postgres import PostgresClient
-from tandemn_system_data.db.orm import GpuMetricRow
+from tandemn_system_data.db.orm import ChainRow, GpuMetricRow, JobRow
 from tandemn_system_data.models._base import utc_now
 from tandemn_system_data.models.gpu_metric import (
     GpuMetric,
@@ -149,4 +149,44 @@ class GpuMetricStore:
                 )
                 .order_by(GpuMetricRow.ts)
             ).all()
+        return [_to_model(r) for r in rows]
+
+    def rows_for_job_window(
+        self, user_id: str, job_id: str, start: datetime, end: datetime
+    ) -> list[GpuMetric]:
+        """Koi read path: telemetry for one user's job in a timestamp window."""
+        return self._koi_window(user_id, job_id, start, end)
+
+    def rows_for_rank_window(
+        self, user_id: str, job_id: str, rank_id: str, start: datetime, end: datetime
+    ) -> list[GpuMetric]:
+        """Koi read path: telemetry for one rank in a timestamp window."""
+        return self._koi_window(user_id, job_id, start, end, rank_id=rank_id)
+
+    def _koi_window(
+        self,
+        user_id: str,
+        job_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        rank_id: str | None = None,
+    ) -> list[GpuMetric]:
+        stmt = (
+            select(GpuMetricRow)
+            .join(ChainRow, GpuMetricRow.chain_id == ChainRow.chain_id)
+            .join(JobRow, ChainRow.job_id == JobRow.job_id)
+            .where(
+                JobRow.user_id == user_id,
+                ChainRow.job_id == job_id,
+                GpuMetricRow.chain_id.is_not(None),
+                GpuMetricRow.rank_id.is_not(None),
+                GpuMetricRow.ts >= start,
+                GpuMetricRow.ts <= end,
+            )
+        )
+        if rank_id is not None:
+            stmt = stmt.where(GpuMetricRow.rank_id == rank_id)
+        with self._client.session() as s:
+            rows = s.scalars(stmt.order_by(GpuMetricRow.ts)).all()
         return [_to_model(r) for r in rows]

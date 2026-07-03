@@ -181,7 +181,6 @@ rows = [
         rank_id=rank_id,
         env_label=("reserved", "aws", "us-east-1", "use1-az1", "H100"),
         X={...},
-        W_observed={...},
         # trajectories, CUSUM/ICP snapshots, etc.
     ),
     ...
