@@ -371,8 +371,7 @@ def _evidence_row(tick: int, job_id: str, rank_id: str) -> EvidenceRow:
         job_id=job_id,
         rank_id=rank_id,
         env_label=("reserved", "aws", "us-east-1", "use1-az1", "H100"),
-        X={"n": tick},
-        W_observed={"tps": float(tick)},
+        X={"n": tick, "tps": float(tick)},
         V_observed_trajectory={"latency": [1.0]},
         V_predicted_trajectory={"latency": [1.1]},
         y_observed_trajectory={"cost": [0.5]},
@@ -395,7 +394,7 @@ def _rich_evidence_row(
 ) -> EvidenceRow:
     row = _evidence_row(tick, job_id, rank_id)
     row.env_label = env_label
-    row.W_observed = {"type": workload_type}
+    row.X["type"] = workload_type
     row.mechanism_ids = list(mechanism_ids or [])
     row.icp_result_per_edge = dict.fromkeys(edge_ids or [], "accept")
     row.q_label_per_mechanism = dict.fromkeys(row.mechanism_ids, "Q1")

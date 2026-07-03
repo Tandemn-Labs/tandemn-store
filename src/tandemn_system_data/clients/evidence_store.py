@@ -185,9 +185,7 @@ class EvidenceStore:
         rows = self._rows_for_user(user_id)
         workload_type = self._workload_type(job_features)
         if workload_type is not None:
-            matched = [
-                r for r in rows if self._workload_type(self._payload_w_observed(r)) == workload_type
-            ]
+            matched = [r for r in rows if self._workload_type(self._payload_x(r)) == workload_type]
             if matched:
                 rows = matched
         return [_to_model(r) for r in rows[-top_k:]]
@@ -219,8 +217,8 @@ class EvidenceStore:
         return list(row.payload_json.get("env_label") or [])
 
     @staticmethod
-    def _payload_w_observed(row: EvidenceRowRow) -> dict:
-        return dict(row.payload_json.get("W_observed") or {})
+    def _payload_x(row: EvidenceRowRow) -> dict:
+        return dict(row.payload_json.get("X") or {})
 
     @staticmethod
     def _workload_type(features: dict | None) -> str | None:
