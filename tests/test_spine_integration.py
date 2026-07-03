@@ -12,6 +12,7 @@ from sqlalchemy import inspect
 from tandemn_system_data.clients import (
     CausalGraphStore,
     EvidenceStore,
+    GpuMetricStore,
     JobStore,
     PlanStore,
     PostgresClient,
@@ -38,6 +39,7 @@ from tandemn_system_data.models import (
     EdgeMetadata,
     Event,
     EvidenceRow,
+    GpuMetric,
     Job,
     JobKind,
     JobStatus,
@@ -486,6 +488,92 @@ def test_evidence_store_query_helpers(pg_client: PostgresClient, user_id: str):
         rows[0].row_id,
         rows[2].row_id,
     ]
+
+
+# ----- GPU metrics ------------------------------------------------------------
+
+
+def test_gpu_metric_koi_window_queries_are_user_job_rank_scoped(
+    pg_client: PostgresClient, user_id: str
+):
+    store = GpuMetricStore(pg_client)
+    other_user = new_user_id()
+    job_a, job_b, other_job = new_job_id(), new_job_id(), new_job_id()
+    chain_a0, chain_a1, chain_b, other_chain = (
+        new_chain_id(),
+        new_chain_id(),
+        new_chain_id(),
+        new_chain_id(),
+    )
+    t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)
+    t2 = datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)
+    t3 = datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC)
+    t4 = datetime(2026, 1, 1, 0, 0, 4, tzinfo=UTC)
+
+    with pg_client.begin() as s:
+        s.add(UserRow(user_id=other_user, name="gpu-metric-other", created_at=t0))
+        for uid, jid in ((user_id, job_a), (user_id, job_b), (other_user, other_job)):
+            s.add(
+                JobRow(
+                    job_id=jid,
+                    user_id=uid,
+                    kind="online",
+                    spec_json={},
+                    input_source={},
+                    output_target={},
+                    status="running",
+                    created_at=t0,
+                )
+            )
+        for cid, jid, rank_id in (
+            (chain_a0, job_a, "rank-0"),
+            (chain_a1, job_a, "rank-1"),
+            (chain_b, job_b, "rank-0"),
+            (other_chain, other_job, "rank-0"),
+        ):
+            s.add(
+                ChainRow(
+                    chain_id=cid,
+                    job_id=jid,
+                    role="aggregate",
+                    shape_json={"count": 1, "rank_id": rank_id},
+                    status="running",
+                    created_at=t0,
+                )
+            )
+
+    def metric(metric_id: str, chain_id: str | None, rank_id: str | None, ts: datetime) -> GpuMetric:
+        return GpuMetric(
+            metric_id=metric_id,
+            ts=ts,
+            deployment_id="dgd",
+            gpu_uuid=f"gpu-{metric_id}",
+            chain_id=chain_id,
+            rank_id=rank_id,
+            throughput_token_per_sec=1.0,
+        )
+
+    store.put_many(
+        [
+            metric("metric-rank-0", chain_a0, "rank-0", t1),
+            metric("metric-rank-1", chain_a1, "rank-1", t2),
+            metric("metric-other-job", chain_b, "rank-0", t1),
+            metric("metric-other-user", other_chain, "rank-0", t1),
+            metric("metric-no-chain", None, "rank-0", t1),
+            metric("metric-no-rank", chain_a0, None, t1),
+            metric("metric-outside-window", chain_a0, "rank-0", t4),
+        ]
+    )
+
+    assert [m.metric_id for m in store.rows_for_job_window(user_id, job_a, t0, t3)] == [
+        "metric-rank-0",
+        "metric-rank-1",
+    ]
+    assert [m.metric_id for m in store.rows_for_rank_window(user_id, job_a, "rank-0", t0, t3)] == [
+        "metric-rank-0"
+    ]
+    assert store.rows_for_job_window(user_id, other_job, t0, t3) == []
 
 
 # ----- Resource map (Postgres) ------------------------------------------------
