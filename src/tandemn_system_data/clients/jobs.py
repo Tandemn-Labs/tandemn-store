@@ -127,6 +127,22 @@ class JobStore:
             row = s.get(JobRow, job_id)
             return Job.model_validate(row) if row else None
 
+    def active_chains(self, job_id: str) -> list[Chain]:
+        """The job's launching/running chains, oldest first.
+
+        Telemetry uses this to map worker pods onto canonical chain ids.
+        """
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(ChainRow)
+                .where(
+                    ChainRow.job_id == job_id,
+                    ChainRow.status.in_(ACTIVE_CHAIN_STATUSES),
+                )
+                .order_by(ChainRow.created_at, ChainRow.chain_id)
+            ).all()
+            return [Chain.model_validate(r) for r in rows]
+
     def waiting_jobs(self, user_id: str) -> list[Job]:
         return self._jobs_with_status(user_id, JobStatus.WAITING)
 

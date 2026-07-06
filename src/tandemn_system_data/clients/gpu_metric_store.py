@@ -31,7 +31,6 @@ def _to_row(metric: GpuMetric) -> GpuMetricRow:
         gpu_uuid=metric.gpu_uuid,
         rank_id=metric.rank_id,
         chain_id=metric.chain_id,
-        worker_id=metric.worker_id,
         local_rank=metric.local_rank,
         role=metric.role,
         node_name=metric.node_name,
@@ -50,7 +49,6 @@ def _to_model(row: GpuMetricRow) -> GpuMetric:
         gpu_uuid=row.gpu_uuid,
         rank_id=row.rank_id,
         chain_id=row.chain_id,
-        worker_id=row.worker_id,
         local_rank=row.local_rank,
         role=row.role,
         node_name=row.node_name,
@@ -95,14 +93,26 @@ class GpuMetricStore:
             ).all()
         return [_to_model(r) for r in rows]
 
-    def rows_for_rank(self, rank_id: str, *, limit: int = 100) -> list[GpuMetric]:
-        """Most recent samples for one ladder rank (across its chains/GPUs)."""
+    def rows_for_rank(
+        self, deployment_id: str, rank_id: str, *, limit: int = 100
+    ) -> list[GpuMetric]:
+        """Most recent samples for one ladder rank (across its chains/GPUs).
+
+        rank_id ("{role}-{ladder index}") is only unique within a deployment,
+        hence the deployment_id scope. Rows are per-GPU: inference metrics are
+        chain-scoped and repeat on every GPU of a TP>1 chain, so aggregate
+        them per distinct chain_id, not per row; GPU hardware metrics are
+        genuinely per-row.
+        """
         if limit <= 0:
             return []
         with self._client.session() as s:
             rows = s.scalars(
                 select(GpuMetricRow)
-                .where(GpuMetricRow.rank_id == rank_id)
+                .where(
+                    GpuMetricRow.deployment_id == deployment_id,
+                    GpuMetricRow.rank_id == rank_id,
+                )
                 .order_by(GpuMetricRow.ts.desc())
                 .limit(limit)
             ).all()

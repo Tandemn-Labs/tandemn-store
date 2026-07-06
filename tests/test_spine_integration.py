@@ -359,6 +359,26 @@ def test_event_log_cursor_and_consumer_ack(pg_client: PostgresClient):
     assert log.read_for_consumer(consumer) == []
 
 
+# ----- GPU metric store (telemetry) --------------------------------------------
+
+
+def test_gpu_metric_rank_reads_are_deployment_scoped(pg_client: PostgresClient) -> None:
+    store = GpuMetricStore(pg_client)
+    store.put_many(
+        [
+            GpuMetric(deployment_id="job-a-agg-0", gpu_uuid="GPU-1", rank_id="aggregate-0"),
+            GpuMetric(deployment_id="job-a-agg-0", gpu_uuid="GPU-2", rank_id="aggregate-0"),
+            # Same rank_id in another job's deployment must not leak in.
+            GpuMetric(deployment_id="job-b-agg-0", gpu_uuid="GPU-9", rank_id="aggregate-0"),
+        ]
+    )
+
+    rows = store.rows_for_rank("job-a-agg-0", "aggregate-0")
+    assert sorted(r.gpu_uuid for r in rows) == ["GPU-1", "GPU-2"]
+    assert store.rows_for_rank("job-b-agg-0", "aggregate-0")[0].gpu_uuid == "GPU-9"
+    assert store.rows_for_rank("job-c", "aggregate-0") == []
+
+
 # ----- Evidence store (Koi tick history) --------------------------------------
 
 

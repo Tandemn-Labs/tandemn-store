@@ -24,6 +24,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -127,6 +128,9 @@ class ChainRow(Base):
     __table_args__ = (
         Index("ix_chains_job", "job_id"),
         Index("ix_chains_status", "status"),
+        # job -> rank lookups: Koi's rank_id lives inside shape_json (ranks
+        # have no spine table), so the index is on the JSONB expression.
+        Index("ix_chains_job_rank", "job_id", text("(shape_json ->> 'rank_id')")),
     )
 
 
@@ -231,19 +235,21 @@ class GpuMetricRow(Base):
     metric_id: Mapped[str] = mapped_column(Text, primary_key=True)
     # Wall-clock sample time; the timeseries axis.
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Dynamo graph deployment the sample belongs to (e.g. "qwen3-06b-l4").
-    deployment_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # Dynamo graph deployment the sample belongs to (e.g. "qwen3-06b-l4");
+    # NULL for a GPU no worker owns (idle capacity on a tracked node).
+    deployment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # One row per physical GPU. GPU hardware metrics are scoped to this GPU;
     # inference metrics are scoped to the worker that owns it (worker_id).
     gpu_uuid: Mapped[str] = mapped_column(Text, nullable=False)
     # Tandemn job model, coarse -> fine:
     #   rank_id    ladder rung (a rank config); realized by N chains / DP replicas
-    #   chain_id   one serving unit == one worker (a DP replica within the rank)
-    #   worker_id  the worker pod
-    #   local_rank the GPU's index inside its worker (0..count-1 for TP/PP)
+    #   chain_id   one serving unit (a DP replica within the rank); the
+    #              canonical chains.chain_id when the collector can map the
+    #              worker pod to a chain row, else the pod name
+    #   local_rank the GPU's index inside its chain (0..count-1 for TP/PP)
+    # All None for a GPU no chain owns (idle capacity on a tracked node).
     rank_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     chain_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    worker_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     local_rank: Mapped[str | None] = mapped_column(Text, nullable=True)
     # PD-disaggregation role of the GPU's chain: "prefill" | "decode" | NULL
     # (aggregated worker). Prefill and decode chains have different shapes and
