@@ -1,7 +1,7 @@
 """GpuMetricStore — append-only GPU/inference telemetry in Postgres.
 
-The Orca collector writes one row per (deployment, GPU) per tick; consumers
-read recent windows for a deployment. Indexed columns (``deployment_id``,
+The Orca collector writes one row per (job, GPU) per tick; consumers
+read recent windows for a job. Indexed columns (``job_id``, ``rank_id``,
 ``gpu_uuid``, ``ts``) back the windowed reads; the 28 metric values live in
 ``metrics_json``.
 """
@@ -27,7 +27,7 @@ def _to_row(metric: GpuMetric) -> GpuMetricRow:
     return GpuMetricRow(
         metric_id=metric.metric_id,
         ts=metric.ts,
-        deployment_id=metric.deployment_id,
+        job_id=metric.job_id,
         gpu_uuid=metric.gpu_uuid,
         rank_id=metric.rank_id,
         chain_id=metric.chain_id,
@@ -45,7 +45,7 @@ def _to_model(row: GpuMetricRow) -> GpuMetric:
     return gpu_metric_from_row(
         metric_id=row.metric_id,
         ts=row.ts,
-        deployment_id=row.deployment_id,
+        job_id=row.job_id,
         gpu_uuid=row.gpu_uuid,
         rank_id=row.rank_id,
         chain_id=row.chain_id,
@@ -80,26 +80,24 @@ class GpuMetricStore:
             row = s.get(GpuMetricRow, metric_id)
             return _to_model(row) if row else None
 
-    def recent(self, deployment_id: str, *, limit: int = 100) -> list[GpuMetric]:
-        """Most recent samples for a deployment, newest first."""
+    def recent(self, job_id: str, *, limit: int = 100) -> list[GpuMetric]:
+        """Most recent samples for a job, newest first."""
         if limit <= 0:
             return []
         with self._client.session() as s:
             rows = s.scalars(
                 select(GpuMetricRow)
-                .where(GpuMetricRow.deployment_id == deployment_id)
+                .where(GpuMetricRow.job_id == job_id)
                 .order_by(GpuMetricRow.ts.desc())
                 .limit(limit)
             ).all()
         return [_to_model(r) for r in rows]
 
-    def rows_for_rank(
-        self, deployment_id: str, rank_id: str, *, limit: int = 100
-    ) -> list[GpuMetric]:
+    def rows_for_rank(self, job_id: str, rank_id: str, *, limit: int = 100) -> list[GpuMetric]:
         """Most recent samples for one ladder rank (across its chains/GPUs).
 
-        rank_id ("{role}-{ladder index}") is only unique within a deployment,
-        hence the deployment_id scope. Rows are per-GPU: inference metrics are
+        rank_id ("rank_0", ...) is only unique within a job, hence the
+        job_id scope. Rows are per-GPU: inference metrics are
         chain-scoped and repeat on every GPU of a TP>1 chain, so aggregate
         them per distinct chain_id, not per row; GPU hardware metrics are
         genuinely per-row.
@@ -110,7 +108,7 @@ class GpuMetricStore:
             rows = s.scalars(
                 select(GpuMetricRow)
                 .where(
-                    GpuMetricRow.deployment_id == deployment_id,
+                    GpuMetricRow.job_id == job_id,
                     GpuMetricRow.rank_id == rank_id,
                 )
                 .order_by(GpuMetricRow.ts.desc())
@@ -118,15 +116,15 @@ class GpuMetricStore:
             ).all()
         return [_to_model(r) for r in rows]
 
-    def rows_for_role(self, deployment_id: str, role: str, *, limit: int = 100) -> list[GpuMetric]:
-        """Most recent samples for one PD role ("prefill"/"decode") of a deployment."""
+    def rows_for_role(self, job_id: str, role: str, *, limit: int = 100) -> list[GpuMetric]:
+        """Most recent samples for one PD role ("prefill"/"decode") of a job."""
         if limit <= 0:
             return []
         with self._client.session() as s:
             rows = s.scalars(
                 select(GpuMetricRow)
                 .where(
-                    GpuMetricRow.deployment_id == deployment_id,
+                    GpuMetricRow.job_id == job_id,
                     GpuMetricRow.role == role,
                 )
                 .order_by(GpuMetricRow.ts.desc())
@@ -147,13 +145,13 @@ class GpuMetricStore:
             ).all()
         return [_to_model(r) for r in rows]
 
-    def rows_in_window(self, deployment_id: str, start: datetime, end: datetime) -> list[GpuMetric]:
-        """Samples for a deployment with ts in the inclusive [start, end] window."""
+    def rows_in_window(self, job_id: str, start: datetime, end: datetime) -> list[GpuMetric]:
+        """Samples for a job with ts in the inclusive [start, end] window."""
         with self._client.session() as s:
             rows = s.scalars(
                 select(GpuMetricRow)
                 .where(
-                    GpuMetricRow.deployment_id == deployment_id,
+                    GpuMetricRow.job_id == job_id,
                     GpuMetricRow.ts >= start,
                     GpuMetricRow.ts <= end,
                 )

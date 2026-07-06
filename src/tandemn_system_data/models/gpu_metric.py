@@ -1,6 +1,6 @@
 """GpuMetric — one GPU/inference telemetry sample.
 
-One row per (deployment, GPU) per collector tick, persisted via
+One row per (job, GPU) per collector tick, persisted via
 ``GpuMetricStore`` (Postgres ``gpu_metrics`` table). The collector lives in
 ``tandemn-system`` (Orca): it polls Prometheus, computes the 28 tracked
 metrics, and writes rows here. Append-only timeseries; not an Orca handoff
@@ -29,7 +29,7 @@ _IDENTITY_FIELDS = frozenset(
     {
         "metric_id",
         "ts",
-        "deployment_id",
+        "job_id",
         "gpu_uuid",
         "rank_id",
         "chain_id",
@@ -45,8 +45,9 @@ _IDENTITY_FIELDS = frozenset(
 class GpuMetric(CanonicalModel):
     metric_id: str = Field(default_factory=new_gpu_metric_id)
     ts: datetime = Field(default_factory=utc_now)
-    # None for a GPU no worker owns (idle capacity on a tracked node).
-    deployment_id: str | None = None
+    # Owning job; None for a GPU no worker owns (idle capacity on a
+    # tracked node).
+    job_id: str | None = None
     gpu_uuid: str
     # Coarse -> fine: rank (ladder rung) > chain (a DP replica; the canonical
     # chains.chain_id when resolvable, else the worker pod name) > local_rank
@@ -108,7 +109,7 @@ def gpu_metric_from_row(
     *,
     metric_id: str,
     ts: datetime,
-    deployment_id: str | None,
+    job_id: str | None,
     gpu_uuid: str,
     rank_id: str | None,
     chain_id: str | None,
@@ -123,7 +124,7 @@ def gpu_metric_from_row(
     return GpuMetric(
         metric_id=metric_id,
         ts=ts,
-        deployment_id=deployment_id,
+        job_id=job_id,
         gpu_uuid=gpu_uuid,
         rank_id=rank_id,
         chain_id=chain_id,

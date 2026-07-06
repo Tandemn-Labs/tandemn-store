@@ -235,9 +235,10 @@ class GpuMetricRow(Base):
     metric_id: Mapped[str] = mapped_column(Text, primary_key=True)
     # Wall-clock sample time; the timeseries axis.
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Dynamo graph deployment the sample belongs to (e.g. "qwen3-06b-l4");
-    # NULL for a GPU no worker owns (idle capacity on a tracked node).
-    deployment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Owning job (spine key; the pool DGD name is derivable as
+    # tdm-{job ulid tail}-{rank}); NULL for a GPU no worker owns (idle
+    # capacity on a tracked node).
+    job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # One row per physical GPU. GPU hardware metrics are scoped to this GPU;
     # inference metrics are scoped to the worker that owns it (worker_id).
     gpu_uuid: Mapped[str] = mapped_column(Text, nullable=False)
@@ -264,10 +265,9 @@ class GpuMetricRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_gpu_metrics_deployment_ts", "deployment_id", "ts"),
+        Index("ix_gpu_metrics_job_rank_ts", "job_id", "rank_id", "ts"),
         Index("ix_gpu_metrics_gpu_ts", "gpu_uuid", "ts"),
         Index("ix_gpu_metrics_chain_ts", "chain_id", "ts"),
-        Index("ix_gpu_metrics_rank_ts", "rank_id", "ts"),
         Index("ix_gpu_metrics_role_ts", "role", "ts"),
     )
 
