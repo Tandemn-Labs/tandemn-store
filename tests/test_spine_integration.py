@@ -14,6 +14,7 @@ from tandemn_system_data.clients import (
     EvidenceStore,
     GpuMetricStore,
     JobStore,
+    ModelCatalogStore,
     PlanStore,
     PostgresClient,
     PostgresEventLog,
@@ -44,6 +45,7 @@ from tandemn_system_data.models import (
     JobKind,
     JobStatus,
     MechanismMetadata,
+    ModelCatalog,
     Plan,
     PlanAction,
     format_evidence_row_id,
@@ -377,6 +379,42 @@ def test_gpu_metric_rank_reads_are_job_scoped(pg_client: PostgresClient) -> None
     assert sorted(r.gpu_uuid for r in rows) == ["GPU-1", "GPU-2"]
     assert store.rows_for_rank("job-b", "rank_0")[0].gpu_uuid == "GPU-9"
     assert store.rows_for_rank("job-c", "rank_0") == []
+
+
+# ----- Model catalog store ------------------------------------------------------
+
+
+def test_model_catalog_store_replace_get_and_warmup_helpers(pg_client: PostgresClient) -> None:
+    store = ModelCatalogStore(pg_client)
+    assert store.get("Qwen/Qwen3-0.6B") is None
+    # No row yet: the warmup getter still returns the hardcoded default.
+    assert store.get_min_chain_warmup_minutes("Qwen/Qwen3-0.6B") == 10.0
+
+    store.replace(
+        ModelCatalog(
+            model_id="Qwen/Qwen3-0.6B",
+            num_hidden_layers=28,
+            is_moe=False,
+            max_num_seq=[{"gpu_type": "L4", "value": 64}],
+        )
+    )
+    fetched = store.get("Qwen/Qwen3-0.6B")
+    assert fetched is not None
+    assert fetched.num_hidden_layers == 28
+    assert fetched.max_num_seq == [{"gpu_type": "L4", "value": 64}]
+    assert fetched.min_chain_warmup_time == 10.0
+
+    # set_min_chain_warmup_minutes patches only that field.
+    store.set_min_chain_warmup_minutes("Qwen/Qwen3-0.6B", 20.0)
+    assert store.get_min_chain_warmup_minutes("Qwen/Qwen3-0.6B") == 20.0
+    refetched = store.get("Qwen/Qwen3-0.6B")
+    assert refetched is not None
+    assert refetched.num_hidden_layers == 28  # untouched by the patch
+    assert refetched.max_num_seq == [{"gpu_type": "L4", "value": 64}]
+
+    # replace is a full upsert (last-write-wins).
+    store.replace(ModelCatalog(model_id="Qwen/Qwen3-0.6B", num_hidden_layers=99))
+    assert store.get("Qwen/Qwen3-0.6B").num_hidden_layers == 99  # type: ignore[union-attr]
 
 
 # ----- Evidence store (Koi tick history) --------------------------------------

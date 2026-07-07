@@ -17,6 +17,7 @@ from tandemn_system_data.clients.evidence_store import EvidenceStore
 from tandemn_system_data.clients.gpu_metric_store import GpuMetricStore
 from tandemn_system_data.clients.hardware_catalog import HardwareCatalogStore
 from tandemn_system_data.clients.jobs import JobStore
+from tandemn_system_data.clients.model_catalog import ModelCatalogStore
 from tandemn_system_data.clients.plans import PlanStore
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.clients.resource_map import ResourceMapStore
@@ -31,6 +32,7 @@ __all__ = [
     "GpuMetricStore",
     "HardwareCatalogStore",
     "JobStore",
+    "ModelCatalogStore",
     "PlanStore",
     "PostgresClient",
     "PostgresEventLog",

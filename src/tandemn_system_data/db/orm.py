@@ -225,6 +225,21 @@ class HardwareCatalogRow(Base):
 
 
 # ---------------------------------------------------------------------------
+# model_catalogs (per-model architecture/engine/tuning defaults)
+# ---------------------------------------------------------------------------
+
+
+class ModelCatalogRow(Base):
+    __tablename__ = "model_catalogs"
+
+    model_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # All ModelCatalog fields except model_id/updated_at; schemaless because
+    # the field set is HuggingFace/vLLM-driven, not queried/indexed per field.
+    catalog_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+# ---------------------------------------------------------------------------
 # gpu_metrics (Orca — append-only GPU/inference telemetry timeseries)
 # ---------------------------------------------------------------------------
 
@@ -372,6 +387,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     CredentialsRow,
     ResourceMapRow,
     HardwareCatalogRow,
+    ModelCatalogRow,
     GpuMetricRow,
     EvidenceRowRow,
     KoiCausalNodeRow,

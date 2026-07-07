@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from tandemn_system_data import events, ids
 from tandemn_system_data.models import (
+    DEFAULT_MIN_CHAIN_WARMUP_MINUTES,
     ActionType,
     Chain,
     ChainRole,
@@ -18,12 +19,15 @@ from tandemn_system_data.models import (
     Job,
     JobKind,
     JobStatus,
+    ModelCatalog,
     Plan,
     PlanAction,
     User,
     evidence_payload_from_row,
     evidence_row_to_payload,
     format_evidence_row_id,
+    model_catalog_from_row,
+    model_catalog_to_json,
 )
 
 # ----- IDs -------------------------------------------------------------------
@@ -147,6 +151,30 @@ def test_evidence_row_payload_round_trip():
 def test_models_forbid_extras():
     with pytest.raises(ValidationError):
         User(name="X", bogus="nope")  # type: ignore[call-arg]
+
+
+def test_model_catalog_defaults_and_json_round_trip():
+    catalog = ModelCatalog(model_id="Qwen/Qwen3-0.6B", num_hidden_layers=28, is_moe=False)
+    assert catalog.gpu_mem_util == 0.85
+    assert catalog.min_chain_warmup_time == DEFAULT_MIN_CHAIN_WARMUP_MINUTES
+    assert catalog.max_num_seq == []
+
+    catalog.max_num_seq = [{"gpu_type": "L4", "value": 64}]
+    catalog.min_chain_warmup_time = 15.0
+    body = model_catalog_to_json(catalog)
+    assert "model_id" not in body and "updated_at" not in body
+
+    back = model_catalog_from_row(
+        model_id=catalog.model_id, updated_at=catalog.updated_at, catalog=body
+    )
+    assert back.num_hidden_layers == 28
+    assert back.max_num_seq == [{"gpu_type": "L4", "value": 64}]
+    assert back.min_chain_warmup_time == 15.0
+
+
+def test_model_catalog_forbids_extras():
+    with pytest.raises(ValidationError):
+        ModelCatalog(model_id="m", bogus="nope")  # type: ignore[call-arg]
 
 
 def test_credentials_require_expiry_and_secret():

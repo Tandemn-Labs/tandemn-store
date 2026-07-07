@@ -45,6 +45,12 @@ from tandemn_system_data.models.hardware_catalog import (
     HardwareCatalog,
 )
 from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
+from tandemn_system_data.models.model_catalog import (
+    DEFAULT_MIN_CHAIN_WARMUP_MINUTES,
+    ModelCatalog,
+    model_catalog_from_row,
+    model_catalog_to_json,
+)
 from tandemn_system_data.models.plan import Plan, PlanAction
 from tandemn_system_data.models.resource_map import (
     Cloud,
@@ -59,6 +65,7 @@ from tandemn_system_data.models.user import User
 
 __all__ = [
     "DEFAULT_HARDWARE_CATALOG_KEY",
+    "DEFAULT_MIN_CHAIN_WARMUP_MINUTES",
     "ActionType",
     "CanonicalModel",
     "CausalEdge",
@@ -83,6 +90,7 @@ __all__ = [
     "JobStatus",
     "MachinePool",
     "MechanismMetadata",
+    "ModelCatalog",
     "NetworkFabric",
     "Plan",
     "PlanAction",
@@ -99,5 +107,7 @@ __all__ = [
     "format_evidence_row_id",
     "gpu_metric_from_row",
     "gpu_metric_to_metrics",
+    "model_catalog_from_row",
+    "model_catalog_to_json",
     "utc_now",
 ]
