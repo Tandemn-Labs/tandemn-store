@@ -69,7 +69,7 @@ class ModelCatalog(CanonicalModel):
     activation_quantization_method: str | None = None
     activation_dtype: str | None = None
     prefix_cache_enabled: bool | None = None
-    chunk_prefix_enable: bool | None = None
+    chunk_prefill_enable: bool | None = None
     chunk_size: int = 100  # hardcoded
     sliding_window_size: int | None = None
     lmcache_enabled: bool = False  # hardcoded, off for now
