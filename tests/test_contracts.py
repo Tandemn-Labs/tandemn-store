@@ -163,6 +163,12 @@ def test_model_catalog_defaults_and_json_round_trip():
     assert catalog.gpu_mem_util == 0.85
     assert catalog.min_chain_warmup_time == DEFAULT_MIN_CHAIN_WARMUP_MINUTES
     assert catalog.max_num_seq == []
+    assert catalog.activation_quantization_method == "none"
+    assert catalog.weight_quantization_method == "none"
+    assert catalog.draft_model_id == ""
+    assert catalog.spec_decoding_method == "none"
+    assert catalog.num_speculative_tokens == 0
+    assert catalog.spec_acceptance_threshold == 0.0
 
     catalog.max_num_seq = [{"gpu_type": "L4", "value": 64}]
     catalog.min_chain_warmup_time = 15.0
