@@ -154,7 +154,12 @@ def test_models_forbid_extras():
 
 
 def test_model_catalog_defaults_and_json_round_trip():
-    catalog = ModelCatalog(model_id="Qwen/Qwen3-0.6B", num_hidden_layers=28, is_moe=False)
+    catalog = ModelCatalog(
+        model_id="Qwen/Qwen3-0.6B",
+        num_hidden_layers=28,
+        is_moe=False,
+        chunked_prefill_enable=True,
+    )
     assert catalog.gpu_mem_util == 0.85
     assert catalog.min_chain_warmup_time == DEFAULT_MIN_CHAIN_WARMUP_MINUTES
     assert catalog.max_num_seq == []
@@ -168,6 +173,7 @@ def test_model_catalog_defaults_and_json_round_trip():
         model_id=catalog.model_id, updated_at=catalog.updated_at, catalog=body
     )
     assert back.num_hidden_layers == 28
+    assert back.chunked_prefill_enable is True
     assert back.max_num_seq == [{"gpu_type": "L4", "value": 64}]
     assert back.min_chain_warmup_time == 15.0
 

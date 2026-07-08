@@ -395,12 +395,14 @@ def test_model_catalog_store_replace_get_and_warmup_helpers(pg_client: PostgresC
             model_id="Qwen/Qwen3-0.6B",
             num_hidden_layers=28,
             is_moe=False,
+            chunked_prefill_enable=True,
             max_num_seq=[{"gpu_type": "L4", "value": 64}],
         )
     )
     fetched = store.get("Qwen/Qwen3-0.6B")
     assert fetched is not None
     assert fetched.num_hidden_layers == 28
+    assert fetched.chunked_prefill_enable is True
     assert fetched.max_num_seq == [{"gpu_type": "L4", "value": 64}]
     assert fetched.min_chain_warmup_time == 10.0
 
