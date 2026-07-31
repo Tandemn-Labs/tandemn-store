@@ -127,6 +127,29 @@ class JobStore:
             row = s.get(JobRow, job_id)
             return Job.model_validate(row) if row else None
 
+    def list_jobs(self, user_id: str, *, limit: int = 200) -> list[Job]:
+        """The user's newest jobs across every lifecycle state."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(JobRow)
+                .where(JobRow.user_id == user_id)
+                .order_by(JobRow.created_at.desc())
+                .limit(limit)
+            ).all()
+            return [Job.model_validate(r) for r in rows]
+
+    def chains(self, job_id: str) -> list[Chain]:
+        """Every chain recorded for a job, newest first."""
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(ChainRow)
+                .where(ChainRow.job_id == job_id)
+                .order_by(ChainRow.created_at.desc(), ChainRow.chain_id)
+            ).all()
+            return [Chain.model_validate(r) for r in rows]
+
     def active_chains(self, job_id: str) -> list[Chain]:
         """The job's launching/running chains, oldest first.
 

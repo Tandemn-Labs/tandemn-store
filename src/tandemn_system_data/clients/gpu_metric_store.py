@@ -80,6 +80,16 @@ class GpuMetricStore:
             row = s.get(GpuMetricRow, metric_id)
             return _to_model(row) if row else None
 
+    def latest(self, *, limit: int = 500) -> list[GpuMetric]:
+        """Newest fleet samples, including GPUs not owned by a job."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(GpuMetricRow).order_by(GpuMetricRow.ts.desc()).limit(limit)
+            ).all()
+        return [_to_model(r) for r in rows]
+
     def recent(self, job_id: str, *, limit: int = 100) -> list[GpuMetric]:
         """Most recent samples for a job, newest first."""
         if limit <= 0:

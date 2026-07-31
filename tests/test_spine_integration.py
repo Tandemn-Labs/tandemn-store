@@ -19,6 +19,7 @@ from tandemn_system_data.clients import (
     PostgresClient,
     PostgresEventLog,
     ResourceMapStore,
+    UserStore,
 )
 from tandemn_system_data.clients.causal_graph_store import edge_to_row, node_to_row
 from tandemn_system_data.db import ALL_TABLES, ChainRow, EventRow, JobRow, PlanRow, UserRow
@@ -48,6 +49,7 @@ from tandemn_system_data.models import (
     ModelCatalog,
     Plan,
     PlanAction,
+    User,
     format_evidence_row_id,
 )
 from tandemn_system_data.models.resource_map import (
@@ -230,8 +232,18 @@ def test_koi_reads_waiting_and_running_with_chains(
             )
 
     assert waiting.job_id in {j.job_id for j in store.waiting_jobs(user_id)}
+    assert waiting.job_id in {j.job_id for j in store.list_jobs(user_id)}
     mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == running.job_id)
     assert [c.chain_id for c in mine.chains] == [live]  # failed chain excluded
+    assert {c.chain_id for c in store.chains(running.job_id)} == {live, dead}
+
+
+def test_user_store_ensure_is_idempotent(pg_client: PostgresClient):
+    user = User(user_id=new_user_id(), name="console-user")
+    store = UserStore(pg_client)
+
+    assert store.ensure(user) == user
+    assert store.ensure(user) == user
 
 
 # ----- PlanStore + chain helpers (the Koi -> Orca handoff) --------------------
@@ -266,6 +278,7 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
     # Orca's side: poll, apply, mark applied.
     pending = plans.unapplied(user_id)
     assert plan.plan_id in {p.plan_id for p in pending}
+    assert plan.plan_id in {p.plan_id for p in plans.list_plans(user_id)}
     fetched = next(p for p in pending if p.plan_id == plan.plan_id)
     assert fetched.actions[0].type is ActionType.PLACE
     assert fetched.actions[0].target_p99_ttft_ms == 500
@@ -377,6 +390,7 @@ def test_gpu_metric_rank_reads_are_job_scoped(pg_client: PostgresClient) -> None
 
     rows = store.rows_for_rank("job-a", "rank_0")
     assert sorted(r.gpu_uuid for r in rows) == ["GPU-1", "GPU-2"]
+    assert {row.gpu_uuid for row in store.latest()} >= {"GPU-1", "GPU-2", "GPU-9"}
     assert store.rows_for_rank("job-b", "rank_0")[0].gpu_uuid == "GPU-9"
     assert store.rows_for_rank("job-c", "rank_0") == []
 

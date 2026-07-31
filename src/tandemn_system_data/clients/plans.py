@@ -56,6 +56,19 @@ class PlanStore:
             row = s.get(PlanRow, plan_id)
             return _to_model(row) if row else None
 
+    def list_plans(self, user_id: str, *, limit: int = 200) -> list[Plan]:
+        """The user's newest plans across every status."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(PlanRow)
+                .where(PlanRow.user_id == user_id)
+                .order_by(PlanRow.created_at.desc())
+                .limit(limit)
+            ).all()
+            return [_to_model(r) for r in rows]
+
     def unapplied(self, user_id: str) -> list[Plan]:
         """Plans Orca has not acted on yet, oldest first."""
         with self._client.session() as s:
