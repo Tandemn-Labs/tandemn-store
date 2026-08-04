@@ -20,7 +20,7 @@ from pydantic import Field
 
 from tandemn_system_data.ids import new_job_id
 from tandemn_system_data.models._base import CanonicalModel, utc_now
-from tandemn_system_data.models.enums import ChainRole, ChainStatus, JobKind, JobStatus
+from tandemn_system_data.models.enums import JobKind, JobStatus, RankRole, RankStatus
 
 
 class Job(CanonicalModel):
@@ -36,21 +36,20 @@ class Job(CanonicalModel):
     finished_at: datetime | None = None
 
 
-class ChainAllocation(CanonicalModel):
-    """Read-model: one chain currently holding resources for a job.
-    Derived from the chains table, never stored separately."""
+class RankAllocation(CanonicalModel):
+    """Read model for one active rank serving a job."""
 
-    chain_id: str
+    rank_id: str
     plan_id: str | None
-    role: ChainRole
-    status: ChainStatus
+    role: RankRole
+    status: RankStatus
     shape_json: dict[str, Any] = Field(default_factory=dict)
-    target_node: str | None = None
+    n_replicas: int
+    reason_code: str | None = None
 
 
 class RunningJob(CanonicalModel):
-    """Read-model for the Koi tick: a running job plus the chains
-    serving it."""
+    """Read model for a running job and its active ranks."""
 
     job: Job
-    chains: list[ChainAllocation] = Field(default_factory=list)
+    ranks: list[RankAllocation] = Field(default_factory=list)

@@ -32,7 +32,7 @@ _IDENTITY_FIELDS = frozenset(
         "job_id",
         "gpu_uuid",
         "rank_id",
-        "chain_id",
+        "chain_index",
         "local_rank",
         "role",
         "node_name",
@@ -49,11 +49,9 @@ class GpuMetric(CanonicalModel):
     # tracked node).
     job_id: str | None = None
     gpu_uuid: str
-    # Coarse -> fine: rank (ladder rung) > chain (a DP replica; the canonical
-    # chains.chain_id when resolvable, else the worker pod name) > local_rank
-    # (GPU index within the chain). All None for a GPU no chain owns.
+    # Coarse -> fine: canonical rank > replica index > local GPU rank.
     rank_id: str | None = None
-    chain_id: str | None = None
+    chain_index: int | None = None
     local_rank: str | None = None
     # PD-disaggregation role: "prefill" | "decode" | None (aggregated).
     role: str | None = None
@@ -112,7 +110,7 @@ def gpu_metric_from_row(
     job_id: str | None,
     gpu_uuid: str,
     rank_id: str | None,
-    chain_id: str | None,
+    chain_index: int | None,
     local_rank: str | None,
     role: str | None,
     node_name: str | None,
@@ -127,7 +125,7 @@ def gpu_metric_from_row(
         job_id=job_id,
         gpu_uuid=gpu_uuid,
         rank_id=rank_id,
-        chain_id=chain_id,
+        chain_index=chain_index,
         local_rank=local_rank,
         role=role,
         node_name=node_name,

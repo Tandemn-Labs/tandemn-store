@@ -1,7 +1,7 @@
 """PlanStore — the Koi -> Orca plan handoff.
 
 Koi writes a plan (`create`); Orca polls `unapplied`, applies the
-actions (gang-launching chains, transitioning jobs), and calls
+actions (launching ranks, transitioning jobs), and calls
 `mark_applied`. mark_applied is a compare-and-set so two Orca workers
 cannot apply the same plan twice.
 """

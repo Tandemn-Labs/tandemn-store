@@ -19,7 +19,7 @@ class Event(CanonicalModel):
     event_id: str = Field(default_factory=new_event_id)
     user_id: str | None = None
     job_id: str | None = None
-    chain_id: str | None = None
+    rank_id: str | None = None
     type: str
     payload_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)

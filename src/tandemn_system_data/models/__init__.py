@@ -1,7 +1,7 @@
 """Pydantic models for the canonical entities in DATA_ARCHITECTURE.md §5.
 
 Re-exports every entity model and shared enum at the package level so
-consumers can write `from tandemn_system_data.models import Job, Chain, ...`.
+consumers can write `from tandemn_system_data.models import Job, Rank, ...`.
 """
 
 from __future__ import annotations
@@ -16,14 +16,13 @@ from tandemn_system_data.models.causal_graph import (
     envs_seen_from_json,
     envs_seen_to_json,
 )
-from tandemn_system_data.models.chain import Chain
 from tandemn_system_data.models.credentials import Credentials
 from tandemn_system_data.models.enums import (
     ActionType,
-    ChainRole,
-    ChainStatus,
     JobKind,
     JobStatus,
+    RankRole,
+    RankStatus,
     ReasonCode,
 )
 from tandemn_system_data.models.event import Event
@@ -44,7 +43,7 @@ from tandemn_system_data.models.hardware_catalog import (
     DEFAULT_HARDWARE_CATALOG_KEY,
     HardwareCatalog,
 )
-from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
+from tandemn_system_data.models.job import Job, RankAllocation, RunningJob
 from tandemn_system_data.models.model_catalog import (
     DEFAULT_MIN_CHAIN_WARMUP_MINUTES,
     ModelCatalog,
@@ -52,6 +51,7 @@ from tandemn_system_data.models.model_catalog import (
     model_catalog_to_json,
 )
 from tandemn_system_data.models.plan import Plan, PlanAction
+from tandemn_system_data.models.rank import Rank
 from tandemn_system_data.models.resource_map import (
     Cloud,
     IntraMachineInterconnect,
@@ -71,10 +71,6 @@ __all__ = [
     "CausalEdge",
     "CausalMechanism",
     "CausalNode",
-    "Chain",
-    "ChainAllocation",
-    "ChainRole",
-    "ChainStatus",
     "Cloud",
     "Credentials",
     "EdgeMetadata",
@@ -94,6 +90,10 @@ __all__ = [
     "NetworkFabric",
     "Plan",
     "PlanAction",
+    "Rank",
+    "RankAllocation",
+    "RankRole",
+    "RankStatus",
     "ReasonCode",
     "Region",
     "ResourceMap",

@@ -17,9 +17,9 @@ bytes).
 | Hand off decision | `PlanStore.create` | `PlanStore.unapplied` → apply → `mark_applied` |
 | Persist learning evidence | `EvidenceStore.put` / `put_many` | — |
 | Causal graph + confidence | `CausalGraphStore` load/sync | — |
-| Launch chains / transition jobs | — | `JobStore.launch_chains`, `transition` |
+| Launch ranks / transition jobs | — | `JobStore.launch_ranks`, `transition` |
 | Resource map | `ResourceMapStore.get` (read) | `ResourceMapStore.replace` (write) |
-| Events | write tick/plan events; consume for learning | write job/chain events |
+| Events | write tick/plan events; consume for learning | write job/rank events |
 
 Koi is a **writer of plans and evidence** and a **reader of everything else**.
 Orca is the **executor**.
@@ -85,7 +85,7 @@ sequenceDiagram
     Koi->>PG: PlanStore.create(plan)
     Koi->>PG: plan.created + tick.completed events
     Note over Orca: separate loop polls unapplied plans
-    Orca->>PG: apply actions, mark_applied, chain/job events
+    Orca->>PG: apply actions, mark_applied, rank/job events
     Orca->>PG: ResourceMapStore.replace
 ```
 
@@ -98,14 +98,14 @@ evidence = EvidenceStore(pg)
 
 history = evidence.recent(user_id, last_n_ticks=10)  # CUSUM / ICP / surrogate input
 waiting = jobs.waiting_jobs(user_id)
-running = jobs.running_jobs(user_id)   # RunningJob: job + active chains
+running = jobs.running_jobs(user_id)   # RunningJob: job + active ranks
 paused = jobs.paused_jobs(user_id)
 resource_map = ResourceMapStore(pg, user_id=user_id).get()
 capacity = resource_map.scheduling_summary()  # env_key -> {total, gpu_type, pools: [...], ...}
 ```
 
 `running_jobs` is the important job read — each `RunningJob` has `job` plus
-active `ChainAllocation`s (launching/running only). See
+active `RankAllocation`s (launching/running only). See
 `src/tandemn_system_data/clients/jobs.py`.
 
 Resource map shape: hierarchical `ResourceMap.clouds` (cloud → region → zone
@@ -119,14 +119,14 @@ See `src/tandemn_system_data/models/resource_map.py`.
 
 **Orca dependency:** until Orca wires the reconciler to call
 `ResourceMapStore.replace` on place/preempt/swap/finish, the row may be empty
-(`version=0`, no clouds). Koi may also derive hints from `running_jobs` chains
+(`version=0`, no clouds). Koi may also derive hints from `running_jobs` ranks
 only.
 
 ### 2. Optionally consume events
 
 ```python
 log = PostgresEventLog(pg)
-new_events = log.read_for_consumer("koi", types={"chain.failed", "job.finished"})
+new_events = log.read_for_consumer("koi", types={"rank.failed", "job.finished"})
 # idempotent on event_id
 if new_events:
     log.ack("koi", new_events[-1].event_id)
@@ -135,7 +135,7 @@ if new_events:
 Event catalog: `src/tandemn_system_data/events.py` (`ALL_EVENT_TYPES`,
 typed payloads via `validate_payload`).
 
-Events can also **trigger** a tick (e.g. `job.submitted`, `chain.failed`).
+Events can also **trigger** a tick (e.g. `job.submitted`, `rank.failed`).
 
 ### 3. Run solver → build a `Plan`
 
@@ -151,8 +151,8 @@ plan = Plan(
             job_id="job_B",
             type=ActionType.PLACE,
             ladder=[
-                {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
-                {"decode":  {"gpu": "A100", "count": 8, "chains": 1}},
+                {"prefill": {"gpu": "H100", "count": 8, "n_replicas": 2}},
+                {"decode":  {"gpu": "A100", "count": 8, "n_replicas": 1}},
             ],
             target_tps=1500.0,
         ),
@@ -262,7 +262,7 @@ Koi does **not** call `mark_applied` — Orca does after applying the plan.
 
 ## What Koi must NOT do
 
-- `JobStore.submit`, `transition`, `launch_chains`, `set_chain_status` — Orca only
+- `JobStore.submit`, `transition`, `launch_ranks`, `set_rank_status` — Orca only
 - `PlanStore.mark_applied` — Orca only
 - `ResourceMapStore.replace` — Orca reconciler only
 - `CredentialStore.put` — Orca only
@@ -278,8 +278,8 @@ Orca runs a separate apply-plan loop (`tandemn-system`):
 for plan in PlanStore(pg).unapplied(user_id):
     for action in plan.actions:
         match action.type:
-            case ActionType.PLACE:   # waiting|paused → running + launch_chains
-            case ActionType.PREEMPT: # running → paused + tear down chains
+            case ActionType.PLACE:   # waiting|paused → running + launch_ranks
+            case ActionType.PREEMPT: # running → paused + tear down ranks
             case ActionType.SWAP:    # relaunch on new ladder
             case ActionType.KEEP | ActionType.DEFER:
                 pass
@@ -292,7 +292,7 @@ See `src/tandemn_system_data/clients/plans.py`.
 Orca must also:
 
 1. Mount `create_credentials_app` (workers only — not Koi)
-2. Emit job/chain lifecycle events Koi consumes
+2. Emit job/rank lifecycle events Koi consumes
 3. Update the resource map reconciler on place/preempt/swap/finish
 
 ---
@@ -358,7 +358,7 @@ def run_tick(user_id: str, fsm_tick: int) -> None:
 ## Contract checklist
 
 1. Read last N ticks from `EvidenceStore.recent`
-2. Read `waiting` / `running`+chains / `paused` from `JobStore`
+2. Read `waiting` / `running`+ranks / `paused` from `JobStore`
 3. Read resource map from Postgres (`ResourceMapStore.get`); flatten with
    `scheduling_summary()` for placement checks
 4. Optionally consume events (also valid tick triggers)
@@ -367,7 +367,7 @@ def run_tick(user_id: str, fsm_tick: int) -> None:
 7. Emit `tick.started`, `plan.created`, `tick.completed`
 8. Agree `ladder` JSON shape with Orca
 9. Sync causal graph metadata after S3 confidence updates
-10. Never mutate jobs/chains/resource map directly
+10. Never mutate jobs/ranks/resource map directly
 
 Tests: `tests/test_spine_integration.py` (`test_plan_handoff_and_gang_launch`,
 `test_evidence_store_recent_ticks`, `test_resource_map_store_postgres`,

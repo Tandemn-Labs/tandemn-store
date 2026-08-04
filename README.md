@@ -18,7 +18,7 @@ Koi integration: [`docs/KOI_INTEGRATION.md`](./docs/KOI_INTEGRATION.md).
 - Canonical IDs (`ids.py`), Pydantic models, typed event payload registry (`events.py`)
 - SQLAlchemy ORM mirroring DATA_ARCHITECTURE.md §5 + Alembic migrations
 - `PostgresClient`, `PostgresEventLog` (append events, read by cursor, `event_consumer_offsets`)
-- `JobStore` — Orca writes (submit, CAS status transitions, gang chain launch), Koi reads (waiting/running jobs + active chains)
+- `JobStore` — Orca writes (submit, CAS status transitions, atomic rank launch), Koi reads (waiting/running jobs + active ranks)
 - `PlanStore` — the Koi → Orca handoff: Koi `create`s a plan, Orca polls `unapplied` and `mark_applied`s (CAS)
 - `ResourceMap` + `ResourceMapStore` — hierarchical capacity snapshot per user (`resource_maps.pools_json`); Orca `replace`s, Koi `get`s + `scheduling_summary()`
 - `EvidenceStore` — Koi tick history (`evidence_rows`)

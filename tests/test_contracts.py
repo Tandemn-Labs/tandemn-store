@@ -11,9 +11,6 @@ from tandemn_system_data import events, ids
 from tandemn_system_data.models import (
     DEFAULT_MIN_CHAIN_WARMUP_MINUTES,
     ActionType,
-    Chain,
-    ChainRole,
-    ChainStatus,
     Credentials,
     EvidenceRow,
     Job,
@@ -22,6 +19,9 @@ from tandemn_system_data.models import (
     ModelCatalog,
     Plan,
     PlanAction,
+    Rank,
+    RankRole,
+    RankStatus,
     User,
     evidence_payload_from_row,
     evidence_row_to_payload,
@@ -38,7 +38,7 @@ def test_ids_are_prefixed_unique_and_time_ordered():
         (ids.new_user_id(), "usr_"),
         (ids.new_job_id(), "job_"),
         (ids.new_plan_id(), "plan_"),
-        (ids.new_chain_id(), "chain_"),
+        (ids.new_rank_id(), "rank_"),
         (ids.new_koi_tick_id(), "tick_"),
         (ids.new_event_id(), "evt_"),
         (ids.new_credentials_ref(), "cred_"),
@@ -70,7 +70,7 @@ def test_plan_is_rationale_plus_actions_and_round_trips_json():
             PlanAction(
                 job_id="job_b",
                 type=ActionType.PLACE,
-                ladder=[{"prefill": {"gpu": "H100", "count": 8, "chains": 2}}],
+                ladder=[{"prefill": {"gpu": "H100", "count": 8, "n_replicas": 2}}],
                 target_tps=1500,
                 target_p99_ttft_ms=500,
                 target_p99_tpot_ms=50,
@@ -88,10 +88,15 @@ def test_plan_is_rationale_plus_actions_and_round_trips_json():
         PlanAction(job_id="job_a", type="explode")  # type: ignore[arg-type]
 
 
-def test_chain_is_job_scoped_with_optional_plan_provenance():
-    c = Chain(job_id="job_1", role=ChainRole.DECODE, shape_json={"gpu": "A100", "count": 8})
-    assert c.status is ChainStatus.LAUNCHING
-    assert c.plan_id is None
+def test_rank_is_job_scoped_with_optional_plan_provenance():
+    rank = Rank(
+        job_id="job_1",
+        role=RankRole.DECODE,
+        shape_json={"gpu": "A100", "count": 8},
+        n_replicas=2,
+    )
+    assert rank.status is RankStatus.LAUNCHING
+    assert rank.plan_id is None
 
 
 def test_evidence_row_id_format():
@@ -202,10 +207,10 @@ def test_event_registry_matches_doc_catalog():
         "tick.completed",
         "plan.created",
         "plan.applied",
-        "chain.launched",
-        "chain.running",
-        "chain.stopped",
-        "chain.failed",
+        "rank.launched",
+        "rank.running",
+        "rank.stopped",
+        "rank.failed",
     }
     assert set(events.ALL_EVENT_TYPES) == set(events.PAYLOAD_REGISTRY)
 

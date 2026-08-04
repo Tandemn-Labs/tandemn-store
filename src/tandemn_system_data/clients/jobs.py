@@ -6,8 +6,8 @@ Status semantics for the scheduler:
   waiting        status == waiting (new jobs start here until a plan
                  action places them; defer keeps them here)
   running        status == running
-  paused         status == paused (preempted; chains torn down)
-  active chains  chain.status in {launching, running}
+  paused         status == paused (preempted; ranks torn down)
+  active ranks   rank.status in {launching, running}
 
 Concurrency: transition() is a compare-and-set
 (UPDATE ... WHERE status IN expected), so concurrent writers cannot
@@ -20,32 +20,19 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 
 from tandemn_system_data.clients.postgres import PostgresClient
-from tandemn_system_data.db.orm import ChainRow, JobRow
+from tandemn_system_data.db.orm import JobRow, RankRow
 from tandemn_system_data.models._base import utc_now
-from tandemn_system_data.models.chain import Chain
-from tandemn_system_data.models.enums import ChainRole, ChainStatus, JobStatus
-from tandemn_system_data.models.job import ChainAllocation, Job, RunningJob
+from tandemn_system_data.models.enums import JobStatus, RankRole, RankStatus
+from tandemn_system_data.models.job import Job, RankAllocation, RunningJob
+from tandemn_system_data.models.rank import Rank
 
-ACTIVE_CHAIN_STATUSES: tuple[ChainStatus, ...] = (
-    ChainStatus.LAUNCHING,
-    ChainStatus.RUNNING,
+ACTIVE_RANK_STATUSES: tuple[RankStatus, ...] = (
+    RankStatus.LAUNCHING,
+    RankStatus.RUNNING,
 )
-
-
-def _require_shape_count(chain: Chain) -> None:
-    """Every launched chain must declare its GPU count in shape_json.
-
-    Capacity accounting (free = total - GPUs used by running chains) reads
-    ``shape_json["count"]`` directly; there is no parallelism-derived
-    fallback, so a missing or non-positive count is rejected at launch.
-    """
-    count = chain.shape_json.get("count")
-    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
-        raise ValueError(
-            f"chain {chain.chain_id} shape_json must include a positive int 'count'; got {count!r}"
-        )
 
 
 class JobStore:
@@ -88,35 +75,47 @@ class JobStore:
             # Session.execute(update()) always returns a CursorResult.
             return result.rowcount == 1  # type: ignore[attr-defined]
 
-    # ----- chains (Orca applies plan actions) ------------------------------
+    # ----- ranks (Orca applies plan actions) -------------------------------
 
-    def launch_chains(self, chains: list[Chain]) -> list[Chain]:
-        """Gang launch: insert every chain of a placement in one
-        transaction (all or nothing).
-
-        Each chain's shape_json must declare a positive int ``count`` (GPUs
-        for that chain); the whole gang is rejected if any chain omits it.
-        """
-        for chain in chains:
-            _require_shape_count(chain)
+    def launch_ranks(self, ranks: list[Rank]) -> list[Rank]:
+        """Atomically insert or refresh ranks without changing their owning job."""
         with self._client.begin() as s:
-            for chain in chains:
-                s.add(ChainRow(**chain.model_dump()))
-        return chains
+            for rank in ranks:
+                stmt = insert(RankRow).values(**rank.model_dump())
+                persisted_rank_id = s.scalar(
+                    stmt.on_conflict_do_update(
+                        index_elements=[RankRow.rank_id],
+                        set_={
+                            "job_id": stmt.excluded.job_id,
+                            "plan_id": stmt.excluded.plan_id,
+                            "role": stmt.excluded.role,
+                            "shape_json": stmt.excluded.shape_json,
+                            "n_replicas": stmt.excluded.n_replicas,
+                            "status": stmt.excluded.status,
+                            "reason_code": stmt.excluded.reason_code,
+                            "updated_at": stmt.excluded.updated_at,
+                        },
+                        where=RankRow.job_id == stmt.excluded.job_id,
+                    ).returning(RankRow.rank_id)
+                )
+                if persisted_rank_id is None:
+                    raise ValueError(f"rank {rank.rank_id} already belongs to another job")
+        return ranks
 
-    def set_chain_status(
+    def set_rank_status(
         self,
-        chain_id: str,
-        to: ChainStatus,
-        expected: Iterable[ChainStatus],
+        rank_id: str,
+        to: RankStatus,
+        expected: Iterable[RankStatus],
+        *,
+        reason_code: str | None = None,
     ) -> bool:
-        """Compare-and-set chain status change, same semantics as
-        transition()."""
+        """Compare-and-set rank status change, with failure provenance."""
         with self._client.begin() as s:
             result = s.execute(
-                update(ChainRow)
-                .where(ChainRow.chain_id == chain_id, ChainRow.status.in_(list(expected)))
-                .values(status=to)
+                update(RankRow)
+                .where(RankRow.rank_id == rank_id, RankRow.status.in_(list(expected)))
+                .values(status=to, reason_code=reason_code, updated_at=utc_now())
             )
             return result.rowcount == 1  # type: ignore[attr-defined]
 
@@ -140,31 +139,28 @@ class JobStore:
             ).all()
             return [Job.model_validate(r) for r in rows]
 
-    def chains(self, job_id: str) -> list[Chain]:
-        """Every chain recorded for a job, newest first."""
+    def ranks(self, job_id: str) -> list[Rank]:
+        """Every rank recorded for a job, newest first."""
         with self._client.session() as s:
             rows = s.scalars(
-                select(ChainRow)
-                .where(ChainRow.job_id == job_id)
-                .order_by(ChainRow.created_at.desc(), ChainRow.chain_id)
+                select(RankRow)
+                .where(RankRow.job_id == job_id)
+                .order_by(RankRow.created_at.desc(), RankRow.rank_id)
             ).all()
-            return [Chain.model_validate(r) for r in rows]
+            return [Rank.model_validate(r) for r in rows]
 
-    def active_chains(self, job_id: str) -> list[Chain]:
-        """The job's launching/running chains, oldest first.
-
-        Telemetry uses this to map worker pods onto canonical chain ids.
-        """
+    def active_ranks(self, job_id: str) -> list[Rank]:
+        """The job's launching/running ranks, oldest first."""
         with self._client.session() as s:
             rows = s.scalars(
-                select(ChainRow)
+                select(RankRow)
                 .where(
-                    ChainRow.job_id == job_id,
-                    ChainRow.status.in_(ACTIVE_CHAIN_STATUSES),
+                    RankRow.job_id == job_id,
+                    RankRow.status.in_(ACTIVE_RANK_STATUSES),
                 )
-                .order_by(ChainRow.created_at, ChainRow.chain_id)
+                .order_by(RankRow.created_at, RankRow.rank_id)
             ).all()
-            return [Chain.model_validate(r) for r in rows]
+            return [Rank.model_validate(r) for r in rows]
 
     def waiting_jobs(self, user_id: str) -> list[Job]:
         return self._jobs_with_status(user_id, JobStatus.WAITING)
@@ -173,7 +169,7 @@ class JobStore:
         return self._jobs_with_status(user_id, JobStatus.PAUSED)
 
     def running_jobs(self, user_id: str) -> list[RunningJob]:
-        """Running jobs plus the active chains serving them."""
+        """Running jobs plus the active ranks serving them."""
         with self._client.session() as s:
             job_rows = s.scalars(
                 select(JobRow)
@@ -183,30 +179,31 @@ class JobStore:
             if not job_rows:
                 return []
 
-            chain_rows = s.scalars(
-                select(ChainRow)
+            rank_rows = s.scalars(
+                select(RankRow)
                 .where(
-                    ChainRow.job_id.in_([r.job_id for r in job_rows]),
-                    ChainRow.status.in_(ACTIVE_CHAIN_STATUSES),
+                    RankRow.job_id.in_([r.job_id for r in job_rows]),
+                    RankRow.status.in_(ACTIVE_RANK_STATUSES),
                 )
-                .order_by(ChainRow.created_at)
+                .order_by(RankRow.created_at)
             ).all()
 
-            chains_by_job: dict[str, list[ChainAllocation]] = {}
-            for chain in chain_rows:
-                chains_by_job.setdefault(chain.job_id, []).append(
-                    ChainAllocation(
-                        chain_id=chain.chain_id,
-                        plan_id=chain.plan_id,
-                        role=ChainRole(chain.role),
-                        status=ChainStatus(chain.status),
-                        shape_json=chain.shape_json,
-                        target_node=chain.target_node,
+            ranks_by_job: dict[str, list[RankAllocation]] = {}
+            for rank in rank_rows:
+                ranks_by_job.setdefault(rank.job_id, []).append(
+                    RankAllocation(
+                        rank_id=rank.rank_id,
+                        plan_id=rank.plan_id,
+                        role=RankRole(rank.role),
+                        status=RankStatus(rank.status),
+                        shape_json=rank.shape_json,
+                        n_replicas=rank.n_replicas,
+                        reason_code=rank.reason_code,
                     )
                 )
 
             return [
-                RunningJob(job=Job.model_validate(r), chains=chains_by_job.get(r.job_id, []))
+                RunningJob(job=Job.model_validate(r), ranks=ranks_by_job.get(r.job_id, []))
                 for r in job_rows
             ]
 

@@ -7,7 +7,7 @@ no migration narrative — just the model.
 Tandemn is a control plane for LLM inference. Two services do the work:
 
 - **Koi** — the brain. Computes placement plans and learns from outcomes.
-- **Orca** — the executor. Launches chains, runs batch and online inference, records what happened.
+- **Orca** — the executor. Launches rank replicas, runs batch and online inference, records what happened.
 
 Plus the workers (vLLM processes on GPU nodes) and the user's data systems
 (S3, Snowflake, BigQuery, on-prem object stores, etc.).
@@ -99,7 +99,7 @@ needs them.**
 ```
 user_id
   └── job_id             (waiting | running | paused | finished)
-  │     └── chain_id     (role: prefill | decode | aggregate)
+  │     └── rank_id      (role: prefill | decode | aggregate; N replicas)
   └── plan_id            (rationale + per-job actions, produced by a Koi pass)
 ```
 
@@ -107,10 +107,9 @@ Everything else is an **event**, not an entity:
 
 - A Koi scheduler pass ("tick") is recorded as tick.started /
   tick.completed events; `tick_id` is a correlation string.
-- Chain launch attempts and outcomes are chain.* and job.* events.
-- Ladders (ordered rank configs with expected TPS) live inside the
-  plan's `actions_json` — there is no ranks table and no traversal in
-  the MVP.
+- Rank launch attempts and outcomes are rank.* and job.* events.
+- Ladders live inside the plan's `actions_json`; selected configs are
+  persisted in `ranks`. There is no rank traversal in the MVP.
 
 ---
 
@@ -126,9 +125,9 @@ erDiagram
     users ||--o{ koi_causal_nodes : "Koi topology"
     users ||--o{ koi_causal_edges : "Koi topology"
     users ||--o{ koi_causal_mechanisms : "Koi topology"
-    jobs ||--o{ chains : "served by"
+    jobs ||--o{ ranks : "served by"
     jobs ||--o{ events : emits
-    chains ||--o{ events : emits
+    ranks ||--o{ events : emits
     event_consumer_offsets ||--o{ events : tracks
 
     users {
@@ -157,21 +156,23 @@ erDiagram
       text status
       timestamptz created_at
     }
-    chains {
-      text chain_id PK
+    ranks {
+      text rank_id PK
       text job_id FK
       text plan_id
       text role
       jsonb shape_json
-      text target_node
+      int n_replicas
       text status
+      text reason_code
       timestamptz created_at
+      timestamptz updated_at
     }
     events {
       text event_id PK
       text user_id
       text job_id
-      text chain_id
+      text rank_id
       text type
       jsonb payload_json
       timestamptz created_at
@@ -203,18 +204,16 @@ Key column notes:
   code (FAILED, CANCELLED, ...) otherwise.
 - A `plan` is one Koi pass's decision: a cluster-wide `tick_rationale`
   plus `actions_json`, a list of per-job actions
-  (`place | keep | defer | preempt | swap`). Ladders — ordered rank
-  configs with expected TPS — live inside the actions, not in tables.
+  (`place | keep | defer | preempt | swap`). Ladders live inside the actions;
+  selected configs become canonical rank rows.
   What Koi saw (job counts, resource map version) belongs in the
   rationale.
-- `chains.job_id`: chains are job-scoped (plan actions are per-job).
-  `chains.plan_id` is provenance only, no FK.
-- `chains.shape_json` carries hardware and parallelism together:
+- `ranks.job_id`: ranks are job-scoped (plan actions are per-job).
+  `ranks.plan_id` is provenance only, no FK.
+- `ranks.shape_json` carries hardware and parallelism together:
   `{"gpu": "H100", "count": 8, "tp": 2, "pp": 4}`. Prefill and decode
-  chains of the same job may have different shapes. `count` (the GPU
-  count for the chain) is required — `JobStore.launch_chains` rejects a
-  chain without a positive int `count`, since capacity accounting reads
-  it directly.
+  ranks of the same job may have different shapes; `n_replicas` records
+  how many serving replicas realize each rank.
 - `credentials.secret_payload` is encrypted at rest. Workers never read this table directly.
 - `event_consumer_offsets` tracks each consumer's cursor into the Postgres
   event log. Consumers update their cursor only after successful processing.
@@ -236,7 +235,7 @@ is a Koi implementation detail; this contract only requires that each
 pass produces one `plan`. Each pass looks at:
 
 - waiting jobs and running jobs (Postgres, via `JobStore`: running jobs
-  carry the active chains serving them)
+   carry the active ranks serving them)
 - paused jobs (preempted; candidates to resume)
 - the current resource map (Postgres `resource_maps` per user)
 
@@ -300,8 +299,8 @@ per job it considered:
   "tick_rationale": "<1-3 paragraph cluster-wide reasoning>",
   "actions": [
     {"job_id": "B", "type": "place",                 // waiting -> running
-     "ladder": [{"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
-                 {"decode":  {"gpu": "A100", "count": 8, "chains": 1}}],
+     "ladder": [{"prefill": {"gpu": "H100", "count": 8, "n_replicas": 2}},
+                 {"decode":  {"gpu": "A100", "count": 8, "n_replicas": 1}}],
      "target_tps": 1500},
     {"job_id": "C", "type": "keep"},                 // stay running
     {"job_id": "D", "type": "defer"},                // stay waiting
@@ -317,10 +316,9 @@ Koi `create`s the plan; Orca polls `unapplied`, applies the actions,
 and `mark_applied`s it (compare-and-set, so a plan is applied once).
 
 Orca applies the actions — **no traversal in the MVP**. A placement is
-gang-scheduled: if Koi says 2 prefill chains on 8xH100 and 1 decode
-chain on 8xA100, Orca launches all of it at once
-(`JobStore.launch_chains`, one transaction) and records one job-scoped
-chain row per launched chain. Expected TPS lives inside the
+gang-scheduled: Orca records all selected rank configs at once
+(`JobStore.launch_ranks`, one transaction), including each rank's replica
+count. Expected TPS lives inside the
 ladder JSON for Koi's own bookkeeping; the database stores no
 throughput numbers.
 
@@ -333,8 +331,8 @@ last_n_ticks=10)`` (or more) to feed CUSUM/ICP and surrogate updates.
 
 Indexed columns: `row_id`, `user_id`, `tick`, `job_id`, `rank_id`,
 `deploy_timestamp_utc`; heavy fields live in `payload_json`. Not an Orca
-handoff surface. `rank_id` is a Koi ladder-step key, not a spine `ranks`
-table.
+handoff surface. `rank_id` identifies the canonical rank when evidence
+describes a launched configuration.
 
 ### Koi causal graph (`koi_causal_*`)
 
@@ -408,8 +406,8 @@ They share state through the spine and notify each other through events.
 ```mermaid
 flowchart LR
     Koi -- writes plans --> PG[(Postgres)]
-    Orca -- writes jobs/chains --> PG
-    Koi -- reads jobs/chains --> PG
+    Orca -- writes jobs/ranks --> PG
+    Koi -- reads jobs/ranks --> PG
 
     Orca -- INSERT events --> PG
     Koi -- polls events cursor --> PG
@@ -430,7 +428,7 @@ local memory.
 
 When state changes, the writer inserts an event row into Postgres. Koi
 and Orca consume events by reading rows after their own cursor in
-`event_consumer_offsets`. If Koi is down when Orca records `chain.failed`,
+`event_consumer_offsets`. If Koi is down when Orca records `rank.failed`,
 the row remains in Postgres and Koi catches up when it restarts.
 
 Postgres is both the durable audit log and the MVP delivery mechanism.
@@ -459,14 +457,14 @@ canonical events, for any client that still posts to them.
 job.submitted    job.placed      job.paused     job.resumed    job.finished
 tick.started     tick.completed
 plan.created     plan.applied
-chain.launched   chain.running   chain.stopped  chain.failed
+rank.launched    rank.running    rank.stopped   rank.failed
 ```
 
 `job.finished` carries `finish_reason` (None = success). Launch
 attempts and outcomes are events, not tables.
 
 Each event carries the canonical IDs (`user_id`, `job_id`,
-`chain_id?`) plus a typed payload. Consumers are idempotent on
+`rank_id?`) plus a typed payload. Consumers are idempotent on
 `event_id`.
 
 ---
@@ -481,7 +479,7 @@ Resources** into running pods (vLLM workers).
 ```mermaid
 flowchart LR
     Koi -- /decide --> Orca
-    Orca -- writes plan + chains --> PG[(Postgres)]
+    Orca -- writes plan + ranks --> PG[(Postgres)]
     Orca -- apply CRDs --> K8s
     K8s -- schedules pods --> Nodes[GPU Nodes]
     Operator[td_operator in cluster] -- watches CRDs --> K8s
@@ -492,21 +490,21 @@ flowchart LR
 
 What changes:
 
-- **Launching mechanism.** Orca no longer calls SkyPilot. It writes a `TandemnChain` (or `TandemnLaunchGroup`) CRD per chain into the target cluster's API server. `td_operator` reconciles those into pods.
-- **Failure detection.** Operator watches pod state and reports back via the same `chain.launched` / `chain.running` / `chain.failed` / `chain.stopped` events. The watchdog logic moves out of Orca and into the operator for k8s-managed chains.
+- **Launching mechanism.** Orca no longer calls SkyPilot. It writes launch resources for each rank and its replicas; `td_operator` reconciles those into pods.
+- **Failure detection.** Operator watches pod state and reports back via `rank.launched` / `rank.running` / `rank.failed` / `rank.stopped` events.
 
 What does **not** change:
 
-- **Canonical data model.** `jobs`, `plans`, `chains`, `events`, `credentials` — all unchanged. A `chain_id` is still the row in Postgres; the CRD references it by name.
+- **Canonical data model.** `jobs`, `plans`, `ranks`, `events`, `credentials`; a `rank_id` names the persisted serving configuration.
 - **The two libraries.** `tandemn_system_data` and `tandemn_user_data` are identical. The operator imports `tandemn_user_data` to fetch user data on the worker side, same as the SkyPilot workers do today.
 - **User data path.** Workers (now pods) still fetch directly from the user's data lake via `payload_ref` + `credentials_ref`. The kubelet doesn't see customer credentials; the pod resolves them at fetch time.
-- **Event flow.** Postgres events still carry placement and chain events. Whether the chain runs in a VM (SkyPilot) or a pod (k8s) is invisible to consumers.
-- **Spine queries.** "Show me everything about `job_xyz`" returns the same shape, with `chains.target_node` resolving to a pod name + node instead of a VM hostname.
+- **Event flow.** Postgres events carry placement and rank events.
+- **Spine queries.** "Show me everything about `job_xyz`" includes its canonical ranks.
 
 In other words, the Kubernetes migration is a **launcher swap**, not a
 data model change. The data architecture in this document is the
 contract; SkyPilot and `td_operator` are interchangeable implementations
-of "make the chain real."
+of "make the rank replicas real."
 
 ---
 
@@ -536,7 +534,7 @@ Each is additive. None require schema changes.
 - User data bytes live in the user's systems (S3, lakes, etc. via
   connectors). Tandemn-owned blob storage is deferred (Phase 2).
 - Two libraries: `tandemn_system_data` for canonical state, `tandemn_user_data` for user payloads. Workers see only the second.
-- Plans are rationale + per-job actions (place/keep/defer/preempt/swap); placements gang-launch their chains; no traversal and no throughput columns in the MVP.
+- Plans are rationale + per-job actions (place/keep/defer/preempt/swap); placements launch canonical ranks atomically; no traversal and no throughput columns in the MVP.
 - The Kubernetes migration replaces SkyPilot with `td_operator` + CRDs without touching the data model.
 
 This is the contract. Code that respects it composes; code that breaks
