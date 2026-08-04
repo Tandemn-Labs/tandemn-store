@@ -201,7 +201,8 @@ Key column notes:
   *where* user data lives, never the data itself.
 - `jobs.status` is exactly `waiting | running | paused | finished`. New
   jobs start `waiting`. `finish_reason` is NULL on success, a reason
-  code (FAILED, CANCELLED, ...) otherwise.
+  code (FAILED, CANCELLED, ...) otherwise. `error_message` carries the
+  user-visible detail for a failed deployment or replacement attempt.
 - A `plan` is one Koi pass's decision: a cluster-wide `tick_rationale`
   plus `actions_json`, a list of per-job actions
   (`place | keep | defer | preempt | swap`). Ladders live inside the actions;

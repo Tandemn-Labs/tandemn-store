@@ -63,6 +63,8 @@ class JobStore:
         success, a reason code (FAILED, CANCELLED, ...) means failure.
         """
         values: dict = {"status": to}
+        if to is JobStatus.RUNNING:
+            values["error_message"] = None
         if to is JobStatus.FINISHED:
             values["finished_at"] = utc_now()
             values["finish_reason"] = finish_reason
@@ -73,6 +75,36 @@ class JobStore:
                 .values(**values)
             )
             # Session.execute(update()) always returns a CursorResult.
+            return result.rowcount == 1  # type: ignore[attr-defined]
+
+    def fail(
+        self,
+        job_id: str,
+        expected: Iterable[JobStatus],
+        *,
+        finish_reason: str,
+        error_message: str,
+    ) -> bool:
+        """Atomically finish a job with a user-visible failure detail."""
+        with self._client.begin() as s:
+            result = s.execute(
+                update(JobRow)
+                .where(JobRow.job_id == job_id, JobRow.status.in_(list(expected)))
+                .values(
+                    status=JobStatus.FINISHED,
+                    finish_reason=finish_reason,
+                    error_message=error_message,
+                    finished_at=utc_now(),
+                )
+            )
+            return result.rowcount == 1  # type: ignore[attr-defined]
+
+    def set_error(self, job_id: str, error_message: str | None) -> bool:
+        """Set or clear the latest deployment error without changing job state."""
+        with self._client.begin() as s:
+            result = s.execute(
+                update(JobRow).where(JobRow.job_id == job_id).values(error_message=error_message)
+            )
             return result.rowcount == 1  # type: ignore[attr-defined]
 
     # ----- ranks (Orca applies plan actions) -------------------------------

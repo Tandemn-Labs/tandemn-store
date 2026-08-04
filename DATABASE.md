@@ -42,6 +42,7 @@ erDiagram
       JSONB output_target
       VARCHAR status "waiting | running | paused | finished"
       VARCHAR finish_reason "NULL = success"
+      TEXT error_message "nullable user-visible deployment failure"
       TIMESTAMPTZ created_at
       TIMESTAMPTZ finished_at "nullable"
     }

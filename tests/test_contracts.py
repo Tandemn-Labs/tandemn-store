@@ -58,7 +58,7 @@ def test_job_lifecycle_contract():
     """New jobs start WAITING; statuses are exactly the four MVP states."""
     j = Job(user_id="usr_1", kind=JobKind.BATCH)
     assert j.status is JobStatus.WAITING
-    assert j.finish_reason is None and j.finished_at is None
+    assert j.finish_reason is None and j.error_message is None and j.finished_at is None
     assert {s.value for s in JobStatus} == {"waiting", "running", "paused", "finished"}
 
 

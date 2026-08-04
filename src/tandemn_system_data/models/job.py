@@ -32,6 +32,7 @@ class Job(CanonicalModel):
     output_target: dict[str, Any] = Field(default_factory=dict)
     status: JobStatus = JobStatus.WAITING
     finish_reason: str | None = None  # NULL = success (when finished)
+    error_message: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
 

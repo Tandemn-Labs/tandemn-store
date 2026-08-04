@@ -213,6 +213,27 @@ def test_job_lifecycle_with_cas(store: JobStore, user_id: str):
     assert store.get("job_nope") is None
 
 
+def test_job_failure_detail_and_retryable_error(store: JobStore, user_id: str):
+    failed = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    assert store.fail(
+        failed.job_id,
+        [JobStatus.WAITING],
+        finish_reason="MODEL_CATALOG_INVALID",
+        error_message="max_num_seq missing for L40S",
+    )
+    failed = store.get(failed.job_id)
+    assert failed.status is JobStatus.FINISHED
+    assert failed.finish_reason == "MODEL_CATALOG_INVALID"
+    assert failed.error_message == "max_num_seq missing for L40S"
+
+    running = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    store.transition(running.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
+    assert store.set_error(running.job_id, "replacement catalog is incomplete")
+    assert store.get(running.job_id).error_message == "replacement catalog is incomplete"
+    assert store.set_error(running.job_id, None)
+    assert store.get(running.job_id).error_message is None
+
+
 def test_koi_reads_waiting_and_running_with_ranks(
     store: JobStore, pg_client: PostgresClient, user_id: str
 ):
