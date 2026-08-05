@@ -92,6 +92,9 @@ def evidence_payload_from_row(
         J_realized=float(payload.get("J_realized", 0.0)),
         sigma_realized=float(payload.get("sigma_realized", 0.0)),
         theory_blob=payload.get("theory_blob"),
+        deployment_id=payload.get("deployment_id"),
+        evidence_available_timestamp_utc=payload.get("evidence_available_timestamp_utc"),
+        prediction_lineage=payload.get("prediction_lineage"),
     )
 
 
@@ -131,3 +134,8 @@ class EvidenceRow:
     J_realized: float = 0.0  # achieved Tchebycheff scalar
     sigma_realized: float = 0.0
     theory_blob: str | None = None
+    # Groups correlated tick/rank rows from one immutable deployment epoch.
+    deployment_id: str | None = None
+    evidence_available_timestamp_utc: float | None = None
+    # Links residuals to the prediction context/version/baseline after restart.
+    prediction_lineage: dict[str, Any] | None = None

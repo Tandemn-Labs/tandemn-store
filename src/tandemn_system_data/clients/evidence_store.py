@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import func, select
+from sqlalchemy import Float, cast, func, select
 
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.db.orm import EvidenceRowRow
@@ -107,6 +107,57 @@ class EvidenceStore:
                 select(func.max(EvidenceRowRow.tick)).where(EvidenceRowRow.user_id == user_id)
             )
         return int(tick or 0)
+
+    def latest(self, user_id: str, *, limit: int = 1000) -> list[EvidenceRow]:
+        """Return at most ``limit`` recent rows in chronological order."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = list(
+                s.scalars(
+                    select(EvidenceRowRow)
+                    .where(EvidenceRowRow.user_id == user_id)
+                    .order_by(
+                        EvidenceRowRow.tick.desc(),
+                        EvidenceRowRow.job_id.desc(),
+                        EvidenceRowRow.rank_id.desc(),
+                    )
+                    .limit(int(limit))
+                ).all()
+            )
+        rows.reverse()
+        return [_to_model(row) for row in rows]
+
+    def latest_before(
+        self, user_id: str, available_before: float, *, limit: int = 1000
+    ) -> list[EvidenceRow]:
+        """Return recent rows that were available before a point-in-time cutoff."""
+        if limit <= 0:
+            return []
+        available = cast(
+            EvidenceRowRow.payload_json["evidence_available_timestamp_utc"].astext,
+            Float,
+        )
+        with self._client.session() as s:
+            rows = list(
+                s.scalars(
+                    select(EvidenceRowRow)
+                    .where(
+                        EvidenceRowRow.user_id == user_id,
+                        available.is_not(None),
+                        available < float(available_before),
+                    )
+                    .order_by(
+                        available.desc(),
+                        EvidenceRowRow.tick.desc(),
+                        EvidenceRowRow.job_id.desc(),
+                        EvidenceRowRow.rank_id.desc(),
+                    )
+                    .limit(int(limit))
+                ).all()
+            )
+        rows.reverse()
+        return [_to_model(row) for row in rows]
 
     def rows_in_window(self, user_id: str, start_tick: int, end_tick: int) -> list[EvidenceRow]:
         """Evidence rows with tick in the inclusive [start_tick, end_tick] window."""
