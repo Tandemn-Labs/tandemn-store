@@ -549,6 +549,12 @@ def _evidence_row(tick: int, job_id: str, rank_id: str) -> EvidenceRow:
         y_observed_mean={"cost": 0.5},
         residuals_per_v={"latency": [0.0]},
         residuals_per_y={"cost": [0.02]},
+        deployment_id=f"deploy-{tick}-{rank_id}",
+        evidence_available_timestamp_utc=float(tick) + 0.5,
+        prediction_lineage={
+            "schema_version": 3,
+            "composite_version": "koi-surrogate-v3:test",
+        },
     )
 
 
@@ -581,9 +587,17 @@ def test_evidence_store_recent_ticks(pg_client: PostgresClient, user_id: str):
     recent = store.recent(user_id, last_n_ticks=10)
     assert {r.tick for r in recent} == set(range(3, 13))
     assert len(recent) == 10
+    assert [row.tick for row in store.latest(user_id, limit=3)] == [10, 11, 12]
+    assert [row.tick for row in store.latest_before(user_id, 10.0, limit=3)] == [7, 8, 9]
 
     fetched = store.get(format_evidence_row_id(12, job_id, "prefill-0"))
     assert fetched is not None and fetched.X == {"n": 12, "tps": 12.0}
+    assert fetched.deployment_id == "deploy-12-prefill-0"
+    assert fetched.evidence_available_timestamp_utc == 12.5
+    assert fetched.prediction_lineage == {
+        "schema_version": 3,
+        "composite_version": "koi-surrogate-v3:test",
+    }
 
 
 def test_evidence_store_query_helpers(pg_client: PostgresClient, user_id: str):

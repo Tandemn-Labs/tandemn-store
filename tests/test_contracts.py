@@ -138,6 +138,12 @@ def test_evidence_row_payload_round_trip():
         residuals_per_v={"v": [0.0, 0.0]},
         residuals_per_y={"y": [0.1]},
         cusum_per_mechanism={"m1": (1, 2)},
+        deployment_id="deploy-1",
+        evidence_available_timestamp_utc=2.0,
+        prediction_lineage={
+            "schema_version": 3,
+            "composite_version": "koi-surrogate-v3:test",
+        },
     )
     payload = evidence_row_to_payload(row)
     back = evidence_payload_from_row(
@@ -151,6 +157,9 @@ def test_evidence_row_payload_round_trip():
     assert back.env_label == row.env_label
     assert back.cusum_per_mechanism == {"m1": (1, 2)}
     assert back.y_predicted == row.y_predicted
+    assert back.deployment_id == "deploy-1"
+    assert back.evidence_available_timestamp_utc == 2.0
+    assert back.prediction_lineage == row.prediction_lineage
 
 
 def test_models_forbid_extras():
