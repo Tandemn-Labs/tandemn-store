@@ -64,22 +64,22 @@ class ModelCatalog(CanonicalModel):
 
     # --- HuggingFace: weights / quantization ---
     weight_dtype: str | None = None
-    weight_quantization_method: str | None = None
+    weight_quantization_method: str = "none"
     weight_quantization_bits: int | None = None
-    activation_quantization_method: str | None = None
+    activation_quantization_method: str = "none"
     activation_dtype: str | None = None
     prefix_cache_enabled: bool | None = None
-    chunk_prefill_enable: bool | None = None
+    chunked_prefill_enable: bool | None = None
     chunk_size: int = 100  # hardcoded
     sliding_window_size: int | None = None
     lmcache_enabled: bool = False  # hardcoded, off for now
 
     # --- vLLM: speculative decoding ---
     spec_decoding_enabled: bool | None = None
-    draft_model_id: str | None = None
-    spec_decoding_method: str | None = None
-    num_speculative_tokens: int | None = None
-    spec_acceptance_threshold: float | None = None
+    draft_model_id: str = ""
+    spec_decoding_method: str = "none"
+    num_speculative_tokens: int = 0
+    spec_acceptance_threshold: float = 0.0
 
     # --- Dynamo / vLLM: disaggregation, compilation, scheduling ---
     pd_enabled: bool = False  # hardcoded, off for now
