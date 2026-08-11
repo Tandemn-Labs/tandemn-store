@@ -1,7 +1,7 @@
 """PlanStore — the Koi -> Orca plan handoff.
 
 Koi writes a plan (`create`); Orca polls `unapplied`, applies the
-actions (gang-launching chains, transitioning jobs), and calls
+actions (launching ranks, transitioning jobs), and calls
 `mark_applied`. mark_applied is a compare-and-set so two Orca workers
 cannot apply the same plan twice.
 """
@@ -55,6 +55,19 @@ class PlanStore:
         with self._client.session() as s:
             row = s.get(PlanRow, plan_id)
             return _to_model(row) if row else None
+
+    def list_plans(self, user_id: str, *, limit: int = 200) -> list[Plan]:
+        """The user's newest plans across every status."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(PlanRow)
+                .where(PlanRow.user_id == user_id)
+                .order_by(PlanRow.created_at.desc())
+                .limit(limit)
+            ).all()
+            return [_to_model(r) for r in rows]
 
     def unapplied(self, user_id: str) -> list[Plan]:
         """Plans Orca has not acted on yet, oldest first."""

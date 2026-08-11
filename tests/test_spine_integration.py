@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import inspect
+from sqlalchemy.exc import IntegrityError
 
 from tandemn_system_data.clients import (
     CausalGraphStore,
@@ -19,14 +20,15 @@ from tandemn_system_data.clients import (
     PostgresClient,
     PostgresEventLog,
     ResourceMapStore,
+    UserStore,
 )
 from tandemn_system_data.clients.causal_graph_store import edge_to_row, node_to_row
-from tandemn_system_data.db import ALL_TABLES, ChainRow, EventRow, JobRow, PlanRow, UserRow
+from tandemn_system_data.db import ALL_TABLES, EventRow, JobRow, PlanRow, RankRow, UserRow
 from tandemn_system_data.ids import (
-    new_chain_id,
     new_event_id,
     new_job_id,
     new_plan_id,
+    new_rank_id,
     new_user_id,
 )
 from tandemn_system_data.models import (
@@ -34,9 +36,6 @@ from tandemn_system_data.models import (
     CausalEdge,
     CausalMechanism,
     CausalNode,
-    Chain,
-    ChainRole,
-    ChainStatus,
     EdgeMetadata,
     Event,
     EvidenceRow,
@@ -48,6 +47,10 @@ from tandemn_system_data.models import (
     ModelCatalog,
     Plan,
     PlanAction,
+    Rank,
+    RankRole,
+    RankStatus,
+    User,
     format_evidence_row_id,
 )
 from tandemn_system_data.models.resource_map import (
@@ -103,11 +106,10 @@ def test_migration_creates_spine_and_matches_orm(pg_client: PostgresClient):
 
 
 def test_full_hierarchy_roundtrip_and_cascades(pg_client: PostgresClient, user_id: str):
-    """user -> job -> chains (gang-launched PD pair) + plan + event.
-    Deleting the job cascades to chains; the event log survives."""
+    """user -> job -> ranks + plan + event; ranks cascade with the job."""
     now = datetime.now(UTC)
     job_id, plan_id = new_job_id(), new_plan_id()
-    prefill_id, decode_id, event_id = new_chain_id(), new_chain_id(), new_event_id()
+    prefill_id, decode_id, event_id = new_rank_id(), new_rank_id(), new_event_id()
 
     with pg_client.begin() as s:
         s.add(
@@ -133,8 +135,8 @@ def test_full_hierarchy_roundtrip_and_cascades(pg_client: PostgresClient, user_i
                         "job_id": job_id,
                         "type": "place",
                         "ladder": [
-                            {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
-                            {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
+                            {"prefill": {"gpu": "H100", "count": 8, "n_replicas": 2}},
+                            {"decode": {"gpu": "A100", "count": 8, "n_replicas": 1}},
                         ],
                         "target_tps": 1500,
                     }
@@ -143,17 +145,21 @@ def test_full_hierarchy_roundtrip_and_cascades(pg_client: PostgresClient, user_i
                 created_at=now,
             )
         )
-        for chain_id, role, gpu in ((prefill_id, "prefill", "H100"), (decode_id, "decode", "A100")):
+        for rank_id, role, gpu, n_replicas in (
+            (prefill_id, "prefill", "H100", 2),
+            (decode_id, "decode", "A100", 1),
+        ):
             s.add(
-                ChainRow(
-                    chain_id=chain_id,
+                RankRow(
+                    rank_id=rank_id,
                     job_id=job_id,
                     plan_id=plan_id,
                     role=role,
                     shape_json={"gpu": gpu, "count": 8},
-                    target_node="gpu-node-1",
+                    n_replicas=n_replicas,
                     status="running",
                     created_at=now,
+                    updated_at=now,
                 )
             )
         s.add(
@@ -161,9 +167,9 @@ def test_full_hierarchy_roundtrip_and_cascades(pg_client: PostgresClient, user_i
                 event_id=event_id,
                 user_id=user_id,
                 job_id=job_id,
-                chain_id=decode_id,
-                type="chain.launched",
-                payload_json={"chain_id": decode_id, "job_id": job_id, "role": "decode"},
+                rank_id=decode_id,
+                type="rank.launched",
+                payload_json={"rank_id": decode_id, "job_id": job_id, "role": "decode"},
                 created_at=now,
             )
         )
@@ -171,15 +177,15 @@ def test_full_hierarchy_roundtrip_and_cascades(pg_client: PostgresClient, user_i
     with pg_client.session() as s:
         plan = s.get(PlanRow, plan_id)
         assert plan.actions_json[0]["ladder"][0]["prefill"]["count"] == 8
-        chains = [s.get(ChainRow, prefill_id), s.get(ChainRow, decode_id)]
-        assert {c.role for c in chains} == {"prefill", "decode"}
-        assert all(c.job_id == job_id and c.plan_id == plan_id for c in chains)
+        ranks = [s.get(RankRow, prefill_id), s.get(RankRow, decode_id)]
+        assert {rank.role for rank in ranks} == {"prefill", "decode"}
+        assert all(rank.job_id == job_id and rank.plan_id == plan_id for rank in ranks)
 
     with pg_client.begin() as s:
         s.delete(s.get(JobRow, job_id))
 
     with pg_client.session() as s:
-        assert s.get(ChainRow, prefill_id) is None  # cascaded
+        assert s.get(RankRow, prefill_id) is None  # cascaded
         assert s.get(EventRow, event_id) is not None  # audit log survives
 
 
@@ -207,7 +213,28 @@ def test_job_lifecycle_with_cas(store: JobStore, user_id: str):
     assert store.get("job_nope") is None
 
 
-def test_koi_reads_waiting_and_running_with_chains(
+def test_job_failure_detail_and_retryable_error(store: JobStore, user_id: str):
+    failed = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    assert store.fail(
+        failed.job_id,
+        [JobStatus.WAITING],
+        finish_reason="MODEL_CATALOG_INVALID",
+        error_message="max_num_seq missing for L40S",
+    )
+    failed = store.get(failed.job_id)
+    assert failed.status is JobStatus.FINISHED
+    assert failed.finish_reason == "MODEL_CATALOG_INVALID"
+    assert failed.error_message == "max_num_seq missing for L40S"
+
+    running = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    store.transition(running.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
+    assert store.set_error(running.job_id, "replacement catalog is incomplete")
+    assert store.get(running.job_id).error_message == "replacement catalog is incomplete"
+    assert store.set_error(running.job_id, None)
+    assert store.get(running.job_id).error_message is None
+
+
+def test_koi_reads_waiting_and_running_with_ranks(
     store: JobStore, pg_client: PostgresClient, user_id: str
 ):
     now = datetime.now(UTC)
@@ -215,31 +242,42 @@ def test_koi_reads_waiting_and_running_with_chains(
     running = store.submit(Job(user_id=user_id, kind=JobKind.BATCH))
     store.transition(running.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
 
-    live, dead = new_chain_id(), new_chain_id()
+    live, dead = new_rank_id(), new_rank_id()
     with pg_client.begin() as s:
-        for chain_id, status in ((live, "running"), (dead, "failed")):
+        for rank_id, status in ((live, "running"), (dead, "failed")):
             s.add(
-                ChainRow(
-                    chain_id=chain_id,
+                RankRow(
+                    rank_id=rank_id,
                     job_id=running.job_id,
                     role="aggregate",
                     shape_json={"gpu": "H100", "count": 8},
+                    n_replicas=1,
                     status=status,
                     created_at=now,
+                    updated_at=now,
                 )
             )
 
     assert waiting.job_id in {j.job_id for j in store.waiting_jobs(user_id)}
+    assert waiting.job_id in {j.job_id for j in store.list_jobs(user_id)}
     mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == running.job_id)
-    assert [c.chain_id for c in mine.chains] == [live]  # failed chain excluded
+    assert [rank.rank_id for rank in mine.ranks] == [live]
+    assert {rank.rank_id for rank in store.ranks(running.job_id)} == {live, dead}
 
 
-# ----- PlanStore + chain helpers (the Koi -> Orca handoff) --------------------
+def test_user_store_ensure_is_idempotent(pg_client: PostgresClient):
+    user = User(user_id=new_user_id(), name="console-user")
+    store = UserStore(pg_client)
+
+    assert store.ensure(user) == user
+    assert store.ensure(user) == user
 
 
-def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient, user_id: str):
-    """Koi writes a plan; Orca reads it unapplied, gang-launches the
-    chains, transitions the job, and marks the plan applied (CAS)."""
+# ----- PlanStore + rank helpers (the Koi -> Orca handoff) ---------------------
+
+
+def test_plan_handoff_and_rank_launch(store: JobStore, pg_client: PostgresClient, user_id: str):
+    """Koi writes a plan; Orca atomically launches its ranks."""
     plans = PlanStore(pg_client)
     job = store.submit(Job(user_id=user_id, kind=JobKind.BATCH))
 
@@ -252,8 +290,8 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
                     job_id=job.job_id,
                     type=ActionType.PLACE,
                     ladder=[
-                        {"prefill": {"gpu": "H100", "count": 8, "chains": 2}},
-                        {"decode": {"gpu": "A100", "count": 8, "chains": 1}},
+                        {"prefill": {"gpu": "H100", "count": 8, "n_replicas": 2}},
+                        {"decode": {"gpu": "A100", "count": 8, "n_replicas": 1}},
                     ],
                     target_tps=1500,
                     target_p99_ttft_ms=500,
@@ -266,31 +304,28 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
     # Orca's side: poll, apply, mark applied.
     pending = plans.unapplied(user_id)
     assert plan.plan_id in {p.plan_id for p in pending}
+    assert plan.plan_id in {p.plan_id for p in plans.list_plans(user_id)}
     fetched = next(p for p in pending if p.plan_id == plan.plan_id)
     assert fetched.actions[0].type is ActionType.PLACE
     assert fetched.actions[0].target_p99_ttft_ms == 500
     assert fetched.actions[0].target_p99_tpot_ms == 50
     assert fetched.actions[0].ladder[0]["prefill"]["count"] == 8
 
-    launched = store.launch_chains(
+    launched = store.launch_ranks(
         [
-            Chain(
+            Rank(
                 job_id=job.job_id,
                 plan_id=plan.plan_id,
-                role=ChainRole.PREFILL,
+                role=RankRole.PREFILL,
                 shape_json={"gpu": "H100", "count": 8},
+                n_replicas=2,
             ),
-            Chain(
+            Rank(
                 job_id=job.job_id,
                 plan_id=plan.plan_id,
-                role=ChainRole.PREFILL,
-                shape_json={"gpu": "H100", "count": 8},
-            ),
-            Chain(
-                job_id=job.job_id,
-                plan_id=plan.plan_id,
-                role=ChainRole.DECODE,
+                role=RankRole.DECODE,
                 shape_json={"gpu": "A100", "count": 8},
+                n_replicas=1,
             ),
         ]
     )
@@ -301,42 +336,102 @@ def test_plan_handoff_and_gang_launch(store: JobStore, pg_client: PostgresClient
     assert plans.unapplied(user_id) == []
     assert plans.get(plan.plan_id).status == "applied"
 
-    # Chain status CAS: launching -> running; wrong expectation fails.
-    chain_id = launched[0].chain_id
-    assert store.set_chain_status(chain_id, ChainStatus.RUNNING, [ChainStatus.LAUNCHING]) is True
-    assert store.set_chain_status(chain_id, ChainStatus.RUNNING, [ChainStatus.LAUNCHING]) is False
+    rank_id = launched[0].rank_id
+    assert store.set_rank_status(rank_id, RankStatus.RUNNING, [RankStatus.LAUNCHING]) is True
+    assert store.set_rank_status(rank_id, RankStatus.RUNNING, [RankStatus.LAUNCHING]) is False
 
-    # The Koi read path sees the gang: 3 chains on the running job.
     mine = next(r for r in store.running_jobs(user_id) if r.job.job_id == job.job_id)
-    assert len(mine.chains) == 3
-    assert {c.role for c in mine.chains} == {ChainRole.PREFILL, ChainRole.DECODE}
+    assert len(mine.ranks) == 2
+    assert sum(rank.n_replicas for rank in mine.ranks) == 3
+    assert {rank.role for rank in mine.ranks} == {RankRole.PREFILL, RankRole.DECODE}
 
 
-def test_launch_chains_requires_shape_count(store: JobStore, user_id: str):
-    """A chain without a positive int shape_json['count'] is rejected, and
-    the whole gang is refused (no partial launch)."""
+def test_rank_requires_positive_replica_count(
+    store: JobStore, pg_client: PostgresClient, user_id: str
+):
     job = store.submit(Job(user_id=user_id, kind=JobKind.BATCH))
 
-    for bad_shape in ({}, {"gpu": "H100"}, {"count": 0}, {"count": "8"}):
-        with pytest.raises(ValueError, match="count"):
-            store.launch_chains(
-                [Chain(job_id=job.job_id, role=ChainRole.AGGREGATE, shape_json=bad_shape)]
-            )
+    with pytest.raises(ValueError, match="greater than or equal to 1"):
+        Rank(
+            job_id=job.job_id,
+            role=RankRole.AGGREGATE,
+            shape_json={"gpu": "H100", "count": 8},
+            n_replicas=0,
+        )
 
-    # Mixed gang: the valid chain is not persisted because one is invalid.
-    with pytest.raises(ValueError, match="count"):
-        store.launch_chains(
+    now = datetime.now(UTC)
+    with pytest.raises(IntegrityError), pg_client.begin() as s:
+        s.add(
+            RankRow(
+                rank_id=new_rank_id(),
+                job_id=job.job_id,
+                role="aggregate",
+                shape_json={},
+                n_replicas=0,
+                status="launching",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def test_launch_ranks_upserts_without_changing_creation_or_job(
+    store: JobStore, pg_client: PostgresClient, user_id: str
+):
+    job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    other_job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    first = Rank(
+        job_id=job.job_id,
+        role=RankRole.PREFILL,
+        shape_json={"gpu": "H100", "count": 8},
+        n_replicas=2,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    protected = Rank(
+        job_id=job.job_id,
+        role=RankRole.DECODE,
+        shape_json={"gpu": "H100", "count": 8},
+        n_replicas=1,
+    )
+    store.launch_ranks([first, protected])
+
+    with pytest.raises(ValueError, match="already belongs to another job"):
+        store.launch_ranks(
             [
-                Chain(
-                    job_id=job.job_id,
-                    role=ChainRole.PREFILL,
-                    shape_json={"gpu": "H100", "count": 8},
-                ),
-                Chain(job_id=job.job_id, role=ChainRole.DECODE, shape_json={"gpu": "A100"}),
+                first.model_copy(update={"n_replicas": 3}),
+                protected.model_copy(update={"job_id": other_job.job_id}),
             ]
         )
-    store.transition(job.job_id, JobStatus.RUNNING, [JobStatus.WAITING])
-    assert next(r for r in store.running_jobs(user_id) if r.job.job_id == job.job_id).chains == []
+    assert (
+        next(rank for rank in store.ranks(job.job_id) if rank.rank_id == first.rank_id).n_replicas
+        == 2
+    )
+
+    updated = first.model_copy(
+        update={
+            "role": RankRole.AGGREGATE,
+            "shape_json": {"gpu": "H200", "count": 8},
+            "n_replicas": 4,
+            "status": RankStatus.RUNNING,
+            "reason_code": "REORDERED_SWAP",
+            "updated_at": datetime(2026, 1, 2, tzinfo=UTC),
+            "created_at": datetime(2026, 1, 2, tzinfo=UTC),
+        }
+    )
+    store.launch_ranks([updated])
+
+    with pg_client.session() as s:
+        row = s.get(RankRow, first.rank_id)
+        assert row.job_id == job.job_id
+        assert row.n_replicas == 4
+        assert row.role == "aggregate"
+        assert row.shape_json == {"gpu": "H200", "count": 8}
+        assert row.status == "running"
+        assert row.reason_code == "REORDERED_SWAP"
+        assert row.created_at == created_at
+        assert row.updated_at == datetime(2026, 1, 2, tzinfo=UTC)
 
 
 # ----- Event log --------------------------------------------------------------
@@ -345,12 +440,26 @@ def test_launch_chains_requires_shape_count(store: JobStore, user_id: str):
 def test_event_log_cursor_and_consumer_ack(pg_client: PostgresClient):
     log = PostgresEventLog(pg_client)
     first = Event(type="job.submitted", user_id="usr_e", payload_json={"n": 1})
-    second = Event(type="chain.failed", user_id="usr_e", payload_json={"n": 2})
+    second = Event(
+        type="rank.failed",
+        user_id="usr_e",
+        rank_id="rank-event",
+        payload_json={"rank_id": "rank-event"},
+    )
     log.append(first)
     log.append(second)
 
+    with pytest.raises(ValueError, match="rank_id must match"):
+        log.append(
+            Event(
+                type="rank.failed",
+                rank_id="rank-envelope",
+                payload_json={"rank_id": "rank-payload"},
+            )
+        )
+
     assert [e.event_id for e in log.read_after(first.event_id)] == [second.event_id]
-    assert second.event_id in {e.event_id for e in log.read_after(None, types={"chain.failed"})}
+    assert second.event_id in {e.event_id for e in log.read_after(None, types={"rank.failed"})}
 
     consumer = f"koi-{first.event_id}"  # unique per run
     assert log.get_cursor(consumer) is None
@@ -377,6 +486,7 @@ def test_gpu_metric_rank_reads_are_job_scoped(pg_client: PostgresClient) -> None
 
     rows = store.rows_for_rank("job-a", "rank_0")
     assert sorted(r.gpu_uuid for r in rows) == ["GPU-1", "GPU-2"]
+    assert {row.gpu_uuid for row in store.latest()} >= {"GPU-1", "GPU-2", "GPU-9"}
     assert store.rows_for_rank("job-b", "rank_0")[0].gpu_uuid == "GPU-9"
     assert store.rows_for_rank("job-c", "rank_0") == []
 
@@ -558,11 +668,11 @@ def test_gpu_metric_koi_window_queries_are_user_job_rank_scoped(
     store = GpuMetricStore(pg_client)
     other_user = new_user_id()
     job_a, job_b, other_job = new_job_id(), new_job_id(), new_job_id()
-    chain_a0, chain_a1, chain_b, other_chain = (
-        new_chain_id(),
-        new_chain_id(),
-        new_chain_id(),
-        new_chain_id(),
+    rank_a0, rank_a1, rank_b, other_rank = (
+        new_rank_id(),
+        new_rank_id(),
+        new_rank_id(),
+        new_rank_id(),
     )
     t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
     t1 = datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)
@@ -586,48 +696,48 @@ def test_gpu_metric_koi_window_queries_are_user_job_rank_scoped(
                     created_at=t0,
                 )
             )
-    # Separate transaction: chains FK jobs, and without ORM relationships
+    # Separate transaction: ranks FK jobs, and without ORM relationships
     # SQLAlchemy does not order bare-FK inserts within one flush.
     with pg_client.begin() as s:
-        for cid, jid, rank_id in (
-            (chain_a0, job_a, "rank-0"),
-            (chain_a1, job_a, "rank-1"),
-            (chain_b, job_b, "rank-0"),
-            (other_chain, other_job, "rank-0"),
+        for rank_id, jid in (
+            (rank_a0, job_a),
+            (rank_a1, job_a),
+            (rank_b, job_b),
+            (other_rank, other_job),
         ):
             s.add(
-                ChainRow(
-                    chain_id=cid,
+                RankRow(
+                    rank_id=rank_id,
                     job_id=jid,
                     role="aggregate",
-                    shape_json={"count": 1, "rank_id": rank_id},
+                    shape_json={"count": 1},
+                    n_replicas=1,
                     status="running",
                     created_at=t0,
+                    updated_at=t0,
                 )
             )
 
-    def metric(
-        metric_id: str, chain_id: str | None, rank_id: str | None, ts: datetime
-    ) -> GpuMetric:
+    def metric(metric_id: str, job_id: str, rank_id: str | None, ts: datetime) -> GpuMetric:
         return GpuMetric(
             metric_id=metric_id,
             ts=ts,
-            job_id="job-filler",  # _koi_window scopes via the chains join
+            job_id=job_id,
             gpu_uuid=f"gpu-{metric_id}",
-            chain_id=chain_id,
             rank_id=rank_id,
+            chain_index=0,
             throughput_token_per_sec=1.0,
         )
 
     store.put_many(
         [
-            metric("metric-rank-0", chain_a0, "rank-0", t1),
-            metric("metric-rank-1", chain_a1, "rank-1", t2),
-            metric("metric-other-job", chain_b, "rank-0", t1),
-            metric("metric-other-user", other_chain, "rank-0", t1),
-            metric("metric-no-chain", None, "rank-0", t1),
-            metric("metric-no-rank", chain_a0, None, t1),
-            metric("metric-outside-window", chain_a0, "rank-0", t4),
+            metric("metric-rank-0", job_a, rank_a0, t1),
+            metric("metric-rank-1", job_a, rank_a1, t2),
+            metric("metric-other-job", job_b, rank_b, t1),
+            metric("metric-other-user", other_job, other_rank, t1),
+            metric("metric-mismatched-job", job_b, rank_a0, t1),
+            metric("metric-no-rank", job_a, None, t1),
+            metric("metric-outside-window", job_a, rank_a0, t4),
         ]
     )
 
@@ -635,7 +745,7 @@ def test_gpu_metric_koi_window_queries_are_user_job_rank_scoped(
         "metric-rank-0",
         "metric-rank-1",
     ]
-    assert [m.metric_id for m in store.rows_for_rank_window(user_id, job_a, "rank-0", t0, t3)] == [
+    assert [m.metric_id for m in store.rows_for_rank_window(user_id, job_a, rank_a0, t0, t3)] == [
         "metric-rank-0"
     ]
     assert store.rows_for_job_window(user_id, other_job, t0, t3) == []

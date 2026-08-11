@@ -21,6 +21,7 @@ from tandemn_system_data.clients.model_catalog import ModelCatalogStore
 from tandemn_system_data.clients.plans import PlanStore
 from tandemn_system_data.clients.postgres import PostgresClient
 from tandemn_system_data.clients.resource_map import ResourceMapStore
+from tandemn_system_data.clients.users import UserStore
 
 __all__ = [
     "DEFAULT_AUTH_HEADER",
@@ -37,5 +38,6 @@ __all__ = [
     "PostgresClient",
     "PostgresEventLog",
     "ResourceMapStore",
+    "UserStore",
     "create_credentials_app",
 ]

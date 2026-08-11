@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -24,7 +25,6 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
-    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -68,6 +68,7 @@ class JobRow(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     # NULL = success; reason code (FAILED, CANCELLED, ...) otherwise.
     finish_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -91,8 +92,7 @@ class PlanRow(Base):
     )
     koi_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tick_rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    # List of per-job actions (place/keep/defer/preempt/swap); ladders
-    # with expected TPS live inside — there is no ranks table.
+    # List of per-job actions (place/keep/defer/preempt/swap).
     actions_json: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -104,33 +104,31 @@ class PlanRow(Base):
 
 
 # ---------------------------------------------------------------------------
-# §5: chains
+# §5: ranks
 # ---------------------------------------------------------------------------
 
 
-class ChainRow(Base):
-    __tablename__ = "chains"
+class RankRow(Base):
+    __tablename__ = "ranks"
 
-    chain_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rank_id: Mapped[str] = mapped_column(Text, primary_key=True)
     job_id: Mapped[str] = mapped_column(
         Text, ForeignKey("jobs.job_id", ondelete="CASCADE"), nullable=False
     )
-    # Provenance only (which plan placed this chain); no FK so plans and
-    # chains have independent lifecycles.
+    # Provenance only; plans and ranks have independent lifecycles.
     plan_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
-    # Hardware + parallelism: {"gpu": "H100", "count": 8, "tp": 2, "pp": 4}
     shape_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    target_node: Mapped[str | None] = mapped_column(Text, nullable=True)
+    n_replicas: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("ix_chains_job", "job_id"),
-        Index("ix_chains_status", "status"),
-        # job -> rank lookups: Koi's rank_id lives inside shape_json (ranks
-        # have no spine table), so the index is on the JSONB expression.
-        Index("ix_chains_job_rank", "job_id", text("(shape_json ->> 'rank_id')")),
+        CheckConstraint("n_replicas > 0", name="ck_ranks_n_replicas_positive"),
+        Index("ix_ranks_job", "job_id"),
+        Index("ix_ranks_status", "status"),
     )
 
 
@@ -145,17 +143,17 @@ class EventRow(Base):
     event_id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     job_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    chain_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rank_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        # Events are NOT foreign-key-bound to jobs/chains because the audit
+        # Events are NOT foreign-key-bound to jobs/ranks because the audit
         # log must survive cascade deletes of upstream rows. Index for the
         # common "show me everything about job_xyz" query (§12).
         Index("ix_events_job_created", "job_id", "created_at"),
-        Index("ix_events_chain_created", "chain_id", "created_at"),
+        Index("ix_events_rank_created", "rank_id", "created_at"),
         Index("ix_events_user_created", "user_id", "created_at"),
         Index("ix_events_type_created", "type", "created_at"),
     )
@@ -257,18 +255,12 @@ class GpuMetricRow(Base):
     # One row per physical GPU. GPU hardware metrics are scoped to this GPU;
     # inference metrics are scoped to the worker that owns it (worker_id).
     gpu_uuid: Mapped[str] = mapped_column(Text, nullable=False)
-    # Tandemn job model, coarse -> fine:
-    #   rank_id    ladder rung (a rank config); realized by N chains / DP replicas
-    #   chain_id   one serving unit (a DP replica within the rank); the
-    #              canonical chains.chain_id when the collector can map the
-    #              worker pod to a chain row, else the pod name
-    #   local_rank the GPU's index inside its chain (0..count-1 for TP/PP)
-    # All None for a GPU no chain owns (idle capacity on a tracked node).
+    # Canonical rank plus replica and local GPU indexes.
     rank_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    chain_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chain_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     local_rank: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # PD-disaggregation role of the GPU's chain: "prefill" | "decode" | NULL
-    # (aggregated worker). Prefill and decode chains have different shapes and
+    # PD-disaggregation role: "prefill" | "decode" | NULL
+    # (aggregated worker). Prefill and decode ranks have different shapes and
     # very different metric profiles, so role is stored to group/compare them.
     role: Mapped[str | None] = mapped_column(String(16), nullable=True)
     node_name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -282,7 +274,7 @@ class GpuMetricRow(Base):
     __table_args__ = (
         Index("ix_gpu_metrics_job_rank_ts", "job_id", "rank_id", "ts"),
         Index("ix_gpu_metrics_gpu_ts", "gpu_uuid", "ts"),
-        Index("ix_gpu_metrics_chain_ts", "chain_id", "ts"),
+        Index("ix_gpu_metrics_rank_chain_ts", "rank_id", "chain_index", "ts"),
         Index("ix_gpu_metrics_role_ts", "role", "ts"),
     )
 
@@ -381,7 +373,7 @@ ALL_TABLES: tuple[type[Base], ...] = (
     UserRow,
     JobRow,
     PlanRow,
-    ChainRow,
+    RankRow,
     EventRow,
     EventConsumerOffsetRow,
     CredentialsRow,

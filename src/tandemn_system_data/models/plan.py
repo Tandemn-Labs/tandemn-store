@@ -3,16 +3,15 @@
 A plan is a rationale plus a list of per-job actions. The action type
 determines the job status change Orca applies:
 
-    place    waiting -> running   launch the ladder (gang: all chains at once)
+    place    waiting -> running   launch the ladder ranks atomically
     keep     running              no change
     defer    waiting              no change
-    preempt  running -> paused    tear down the job's chains
+    preempt  running -> paused    tear down the job's ranks
     swap     running              relaunch on new_ladder
 
-Ladders (ordered rank configs with expected TPS) live INSIDE the action
-JSON — there is no ranks table and no traversal in the MVP. Orca
-launches the chains a placement describes in one shot (gang scheduling
-for PD: e.g. 2 prefill 8xH100 + 1 decode 8xA100 together).
+Ladders (ordered rank configs with expected TPS) live inside the action
+JSON. Orca persists the selected ranks in one shot; there is no rank
+traversal in the MVP.
 """
 
 from __future__ import annotations

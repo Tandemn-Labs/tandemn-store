@@ -24,7 +24,7 @@ erDiagram
     users ||--o{ koi_causal_edges : "Koi topology"
     users ||--o{ koi_causal_mechanisms : "Koi topology"
 
-    jobs ||--o{ chains           : "served by"
+    jobs ||--o{ ranks            : "served by"
     event_consumer_offsets ||--o{ events : "cursor into"
 
     users {
@@ -42,6 +42,7 @@ erDiagram
       JSONB output_target
       VARCHAR status "waiting | running | paused | finished"
       VARCHAR finish_reason "NULL = success"
+      TEXT error_message "nullable user-visible deployment failure"
       TIMESTAMPTZ created_at
       TIMESTAMPTZ finished_at "nullable"
     }
@@ -56,22 +57,24 @@ erDiagram
       TIMESTAMPTZ created_at
     }
 
-    chains {
-      TEXT chain_id PK
+    ranks {
+      TEXT rank_id PK
       TEXT job_id FK
       TEXT plan_id "provenance, no FK"
       VARCHAR role "prefill | decode | aggregate"
-      JSONB shape_json "gpu, count (required), tp, pp"
-      TEXT target_node "nullable"
+      JSONB shape_json "gpu, count, tp, pp"
+      INT n_replicas
       VARCHAR status "launching | running | stopped | failed"
+      VARCHAR reason_code "nullable"
       TIMESTAMPTZ created_at
+      TIMESTAMPTZ updated_at
     }
 
     events {
       TEXT event_id PK
       TEXT user_id "nullable, no FK"
       TEXT job_id    "nullable, no FK"
-      TEXT chain_id  "nullable, no FK"
+      TEXT rank_id   "nullable, no FK"
       VARCHAR type
       JSONB payload_json
       TIMESTAMPTZ created_at
@@ -177,9 +180,8 @@ three tables co-locate edge/mechanism metadata with topology. Koi loads at
 boot via `CausalGraphStore`, mutates in memory during a tick, syncs back
 with `sync_edge_metadata` / `sync_mechanisms` after S3 confidence updates.
 
-- **ranks / ladders** — live inside `plans.actions_json`; `evidence_rows.rank_id`
-  labels a ladder step in Koi only. No traversal in the MVP; Orca gang-launches
-  what a placement describes.
+- **ladders** — live inside `plans.actions_json`; selected ladder steps are
+  persisted as canonical `ranks`. No rank traversal in the MVP.
 
 ---
 
@@ -197,13 +199,13 @@ users(user_id)   ← koi_causal_nodes.user_id CASCADE
 users(user_id)   ← koi_causal_edges.user_id CASCADE
 users(user_id)   ← koi_causal_mechanisms.user_id CASCADE
 
-jobs(job_id)     ← chains.job_id         CASCADE
+jobs(job_id)     ← ranks.job_id          CASCADE
 ```
 
-`chains.plan_id` is provenance only (no FK): plans and chains have
+`ranks.plan_id` is provenance only (no FK): plans and ranks have
 independent lifecycles.
 
-`events` deliberately has **no** foreign keys to `jobs` / `chains` /
+`events` deliberately has **no** foreign keys to `jobs` / `ranks` /
 `users` — the audit log must survive cascade deletes of upstream rows.
 Consumers track their own cursor in `event_consumer_offsets` and update it
 only after successful processing.
@@ -215,7 +217,7 @@ only after successful processing.
 > A **user** submits **jobs** (status `waiting`); each Koi pass produces a
 > **plan** — a rationale plus per-job actions (`place`, `keep`, `defer`,
 > `preempt`, `swap`); Orca applies the actions, gang-launching the
-> **chains** a placement describes (prefill + decode together for PD);
+> **ranks** a placement describes (prefill + decode together for PD);
 > every state change emits an **event** into the durable audit log;
 > **credentials** are short-lived, scoped secrets the worker resolves at
 > fetch time.
@@ -228,8 +230,8 @@ Defined in `tandemn_system_data/db/orm.py`:
 
 - `jobs`: (user_id, created_at); (status)
 - `plans`: (user_id, created_at); (status)
-- `chains`: (job_id); (status)
-- `events`: (job_id, created_at); (chain_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
+- `ranks`: (job_id); (status)
+- `events`: (job_id, created_at); (rank_id, created_at); (user_id, created_at); (type, created_at) — supports the "show me everything about job_xyz" query in DATA_ARCHITECTURE.md §12
 - `event_consumer_offsets`: primary key on `consumer_name`
 - `credentials`: (user_id); (expires_at)
 - `evidence_rows`: (user_id, tick); (user_id, job_id, tick)
@@ -266,5 +268,5 @@ To browse the schema from the command line instead:
 ```bash
 make migrate            # ensure the latest schema is applied
 docker exec -it tandemn-postgres psql -U tandemn -d tandemn -c "\dt"
-docker exec -it tandemn-postgres psql -U tandemn -d tandemn -c "\d+ chains"
+docker exec -it tandemn-postgres psql -U tandemn -d tandemn -c "\d+ ranks"
 ```

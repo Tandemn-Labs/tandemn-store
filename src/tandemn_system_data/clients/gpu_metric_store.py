@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from tandemn_system_data.clients.postgres import PostgresClient
-from tandemn_system_data.db.orm import ChainRow, GpuMetricRow, JobRow
+from tandemn_system_data.db.orm import GpuMetricRow, JobRow, RankRow
 from tandemn_system_data.models._base import utc_now
 from tandemn_system_data.models.gpu_metric import (
     GpuMetric,
@@ -30,7 +30,7 @@ def _to_row(metric: GpuMetric) -> GpuMetricRow:
         job_id=metric.job_id,
         gpu_uuid=metric.gpu_uuid,
         rank_id=metric.rank_id,
-        chain_id=metric.chain_id,
+        chain_index=metric.chain_index,
         local_rank=metric.local_rank,
         role=metric.role,
         node_name=metric.node_name,
@@ -48,7 +48,7 @@ def _to_model(row: GpuMetricRow) -> GpuMetric:
         job_id=row.job_id,
         gpu_uuid=row.gpu_uuid,
         rank_id=row.rank_id,
-        chain_id=row.chain_id,
+        chain_index=row.chain_index,
         local_rank=row.local_rank,
         role=row.role,
         node_name=row.node_name,
@@ -80,6 +80,16 @@ class GpuMetricStore:
             row = s.get(GpuMetricRow, metric_id)
             return _to_model(row) if row else None
 
+    def latest(self, *, limit: int = 500) -> list[GpuMetric]:
+        """Newest fleet samples, including GPUs not owned by a job."""
+        if limit <= 0:
+            return []
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(GpuMetricRow).order_by(GpuMetricRow.ts.desc()).limit(limit)
+            ).all()
+        return [_to_model(r) for r in rows]
+
     def recent(self, job_id: str, *, limit: int = 100) -> list[GpuMetric]:
         """Most recent samples for a job, newest first."""
         if limit <= 0:
@@ -94,14 +104,7 @@ class GpuMetricStore:
         return [_to_model(r) for r in rows]
 
     def rows_for_rank(self, job_id: str, rank_id: str, *, limit: int = 100) -> list[GpuMetric]:
-        """Most recent samples for one ladder rank (across its chains/GPUs).
-
-        rank_id ("rank_0", ...) is only unique within a job, hence the
-        job_id scope. Rows are per-GPU: inference metrics are
-        chain-scoped and repeat on every GPU of a TP>1 chain, so aggregate
-        them per distinct chain_id, not per row; GPU hardware metrics are
-        genuinely per-row.
-        """
+        """Most recent samples for one job-owned canonical rank."""
         if limit <= 0:
             return []
         with self._client.session() as s:
@@ -127,19 +130,6 @@ class GpuMetricStore:
                     GpuMetricRow.job_id == job_id,
                     GpuMetricRow.role == role,
                 )
-                .order_by(GpuMetricRow.ts.desc())
-                .limit(limit)
-            ).all()
-        return [_to_model(r) for r in rows]
-
-    def rows_for_chain(self, chain_id: str, *, limit: int = 100) -> list[GpuMetric]:
-        """Most recent samples for one chain (across its GPUs), newest first."""
-        if limit <= 0:
-            return []
-        with self._client.session() as s:
-            rows = s.scalars(
-                select(GpuMetricRow)
-                .where(GpuMetricRow.chain_id == chain_id)
                 .order_by(GpuMetricRow.ts.desc())
                 .limit(limit)
             ).all()
@@ -182,13 +172,12 @@ class GpuMetricStore:
     ) -> list[GpuMetric]:
         stmt = (
             select(GpuMetricRow)
-            .join(ChainRow, GpuMetricRow.chain_id == ChainRow.chain_id)
-            .join(JobRow, ChainRow.job_id == JobRow.job_id)
+            .join(RankRow, GpuMetricRow.rank_id == RankRow.rank_id)
+            .join(JobRow, RankRow.job_id == JobRow.job_id)
             .where(
                 JobRow.user_id == user_id,
-                ChainRow.job_id == job_id,
-                GpuMetricRow.chain_id.is_not(None),
-                GpuMetricRow.rank_id.is_not(None),
+                RankRow.job_id == job_id,
+                GpuMetricRow.job_id == RankRow.job_id,
                 GpuMetricRow.ts >= start,
                 GpuMetricRow.ts <= end,
             )

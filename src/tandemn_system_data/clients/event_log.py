@@ -26,13 +26,17 @@ class PostgresEventLog:
 
     def append(self, event: Event) -> str:
         """Persist an event row and return event_id."""
+        if event.type.startswith("rank.") and (
+            event.rank_id is None or event.payload_json.get("rank_id") != event.rank_id
+        ):
+            raise ValueError("rank event envelope and payload rank_id must match")
         with self._pg.begin() as s:
             s.add(
                 EventRow(
                     event_id=event.event_id,
                     user_id=event.user_id,
                     job_id=event.job_id,
-                    chain_id=event.chain_id,
+                    rank_id=event.rank_id,
                     type=event.type,
                     payload_json=event.payload_json,
                     created_at=event.created_at,
@@ -109,7 +113,7 @@ class PostgresEventLog:
             event_id=row.event_id,
             user_id=row.user_id,
             job_id=row.job_id,
-            chain_id=row.chain_id,
+            rank_id=row.rank_id,
             type=row.type,
             payload_json=row.payload_json,
             created_at=row.created_at,

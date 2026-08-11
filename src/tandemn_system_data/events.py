@@ -6,7 +6,7 @@ read by cursor from `event_consumer_offsets` and are idempotent on `event_id`.
 Catalog matches the MVP lifecycle:
   jobs    waiting -> running <-> paused -> finished
   plans   created -> applied
-  chains  launching -> running -> stopped | failed
+  ranks   launching -> running -> stopped | failed
   ticks   correlation events only (no koi_ticks table)
 """
 
@@ -17,7 +17,7 @@ from typing import Any, Literal
 from pydantic import Field
 
 from tandemn_system_data.models._base import CanonicalModel
-from tandemn_system_data.models.enums import ActionType, ChainRole
+from tandemn_system_data.models.enums import ActionType, RankRole
 
 EventType = Literal[
     "job.submitted",
@@ -29,10 +29,10 @@ EventType = Literal[
     "tick.completed",
     "plan.created",
     "plan.applied",
-    "chain.launched",
-    "chain.running",
-    "chain.stopped",
-    "chain.failed",
+    "rank.launched",
+    "rank.running",
+    "rank.stopped",
+    "rank.failed",
 ]
 
 ALL_EVENT_TYPES: tuple[str, ...] = (
@@ -45,10 +45,10 @@ ALL_EVENT_TYPES: tuple[str, ...] = (
     "tick.completed",
     "plan.created",
     "plan.applied",
-    "chain.launched",
-    "chain.running",
-    "chain.stopped",
-    "chain.failed",
+    "rank.launched",
+    "rank.running",
+    "rank.stopped",
+    "rank.failed",
 )
 
 
@@ -120,30 +120,30 @@ class PlanAppliedPayload(_PayloadBase):
     user_id: str
 
 
-class ChainLaunchedPayload(_PayloadBase):
-    chain_id: str
+class RankLaunchedPayload(_PayloadBase):
+    rank_id: str
     job_id: str
     plan_id: str | None = None
-    role: ChainRole
+    role: RankRole
     shape_json: dict[str, Any] = Field(default_factory=dict)
-    target_node: str | None = None
+    n_replicas: int
 
 
-class ChainRunningPayload(_PayloadBase):
-    chain_id: str
+class RankRunningPayload(_PayloadBase):
+    rank_id: str
     job_id: str
 
 
-class ChainStoppedPayload(_PayloadBase):
+class RankStoppedPayload(_PayloadBase):
     """Torn down on purpose: job finished, preempted, or swapped."""
 
-    chain_id: str
+    rank_id: str
     job_id: str
     reason_code: str | None = None
 
 
-class ChainFailedPayload(_PayloadBase):
-    chain_id: str
+class RankFailedPayload(_PayloadBase):
+    rank_id: str
     job_id: str
     reason_code: str
     detail: str | None = None
@@ -159,10 +159,10 @@ PAYLOAD_REGISTRY: dict[str, type[_PayloadBase]] = {
     "tick.completed": TickCompletedPayload,
     "plan.created": PlanCreatedPayload,
     "plan.applied": PlanAppliedPayload,
-    "chain.launched": ChainLaunchedPayload,
-    "chain.running": ChainRunningPayload,
-    "chain.stopped": ChainStoppedPayload,
-    "chain.failed": ChainFailedPayload,
+    "rank.launched": RankLaunchedPayload,
+    "rank.running": RankRunningPayload,
+    "rank.stopped": RankStoppedPayload,
+    "rank.failed": RankFailedPayload,
 }
 
 
@@ -183,10 +183,6 @@ def validate_payload(event_type: str, payload: dict[str, Any]) -> _PayloadBase:
 __all__ = [
     "ALL_EVENT_TYPES",
     "PAYLOAD_REGISTRY",
-    "ChainFailedPayload",
-    "ChainLaunchedPayload",
-    "ChainRunningPayload",
-    "ChainStoppedPayload",
     "EventType",
     "JobFinishedPayload",
     "JobPausedPayload",
@@ -195,6 +191,10 @@ __all__ = [
     "JobSubmittedPayload",
     "PlanAppliedPayload",
     "PlanCreatedPayload",
+    "RankFailedPayload",
+    "RankLaunchedPayload",
+    "RankRunningPayload",
+    "RankStoppedPayload",
     "TickCompletedPayload",
     "TickStartedPayload",
     "payload_model_for",

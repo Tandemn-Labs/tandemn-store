@@ -32,17 +32,17 @@ class ActionType(StrEnum):
     PLACE = "place"  # waiting -> running, launch ladder
     KEEP = "keep"  # stay running, no change
     DEFER = "defer"  # stay waiting
-    PREEMPT = "preempt"  # running -> paused, tear down chains
+    PREEMPT = "preempt"  # running -> paused, tear down ranks
     SWAP = "swap"  # stay running, relaunch on a new ladder
 
 
-class ChainRole(StrEnum):
+class RankRole(StrEnum):
     PREFILL = "prefill"
     DECODE = "decode"
     AGGREGATE = "aggregate"
 
 
-class ChainStatus(StrEnum):
+class RankStatus(StrEnum):
     LAUNCHING = "launching"
     RUNNING = "running"
     STOPPED = "stopped"  # torn down on purpose (job finished/preempted/swapped)
@@ -50,7 +50,7 @@ class ChainStatus(StrEnum):
 
 
 class ReasonCode(StrEnum):
-    """Standard reason codes for chain / job failures.
+    """Standard reason codes for rank / job failures.
 
     Open-ended on purpose — emerging codes can be added without a
     migration since the columns are text.
@@ -64,3 +64,4 @@ class ReasonCode(StrEnum):
     PREEMPTED = "PREEMPTED"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
+    MODEL_CATALOG_INVALID = "MODEL_CATALOG_INVALID"
