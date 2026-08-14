@@ -36,9 +36,13 @@ class HardwareCatalogStore:
     def all(self) -> list[HardwareCatalog]:
         """Return every seeded cloud catalog for multi-cloud resolution."""
         with self._client.session() as s:
-            rows = s.scalars(select(HardwareCatalogRow).order_by(HardwareCatalogRow.catalog_key)).all()
+            rows = s.scalars(
+                select(HardwareCatalogRow).order_by(HardwareCatalogRow.catalog_key)
+            ).all()
             return [
-                HardwareCatalog(catalog_key=row.catalog_key, updated_at=row.updated_at, catalog=row.catalog)
+                HardwareCatalog(
+                    catalog_key=row.catalog_key, updated_at=row.updated_at, catalog=row.catalog
+                )
                 for row in rows
             ]
 
