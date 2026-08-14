@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from tandemn_system_data.clients.postgres import PostgresClient
@@ -31,6 +32,15 @@ class HardwareCatalogStore:
                 updated_at=row.updated_at,
                 catalog=row.catalog,
             )
+
+    def all(self) -> list[HardwareCatalog]:
+        """Return every seeded cloud catalog for multi-cloud resolution."""
+        with self._client.session() as s:
+            rows = s.scalars(select(HardwareCatalogRow).order_by(HardwareCatalogRow.catalog_key)).all()
+            return [
+                HardwareCatalog(catalog_key=row.catalog_key, updated_at=row.updated_at, catalog=row.catalog)
+                for row in rows
+            ]
 
     def replace(
         self,
