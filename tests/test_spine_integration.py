@@ -213,9 +213,7 @@ def test_job_lifecycle_with_cas(store: JobStore, user_id: str):
     assert store.get("job_nope") is None
 
 
-def test_submit_emits_job_submitted_event(
-    store: JobStore, pg_client: PostgresClient, user_id: str
-):
+def test_submit_emits_job_submitted_event(store: JobStore, pg_client: PostgresClient, user_id: str):
     job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
 
     with pg_client.session() as s:
@@ -365,9 +363,7 @@ def test_plan_handoff_and_rank_launch(store: JobStore, pg_client: PostgresClient
     assert {rank.role for rank in mine.ranks} == {RankRole.PREFILL, RankRole.DECODE}
 
 
-def test_create_emits_plan_created_event(
-    store: JobStore, pg_client: PostgresClient, user_id: str
-):
+def test_create_emits_plan_created_event(store: JobStore, pg_client: PostgresClient, user_id: str):
     job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
     plan = PlanStore(pg_client).create(
         Plan(
