@@ -375,6 +375,35 @@ def test_rank_requires_positive_replica_count(
         )
 
 
+def test_failed_ranks_since_uses_failure_time(store: JobStore, user_id: str):
+    job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    old_failure = Rank(
+        job_id=job.job_id,
+        role=RankRole.AGGREGATE,
+        shape_json={},
+        n_replicas=1,
+        status=RankStatus.FAILED,
+        reason_code="OOM",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    recent_failure = Rank(
+        job_id=job.job_id,
+        role=RankRole.DECODE,
+        shape_json={},
+        n_replicas=1,
+        status=RankStatus.FAILED,
+        reason_code="PROCESS_CRASH",
+        created_at=datetime(2025, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 3, tzinfo=UTC),
+    )
+    store.launch_ranks([old_failure, recent_failure])
+
+    failures = store.failed_ranks_since(job.job_id, datetime(2026, 1, 2, tzinfo=UTC))
+
+    assert [rank.rank_id for rank in failures] == [recent_failure.rank_id]
+
+
 def test_launch_ranks_upserts_without_changing_creation_or_job(
     store: JobStore, pg_client: PostgresClient, user_id: str
 ):

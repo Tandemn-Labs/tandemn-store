@@ -18,6 +18,7 @@ one transaction for a consistent snapshot.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -178,6 +179,20 @@ class JobStore:
                 select(RankRow)
                 .where(RankRow.job_id == job_id)
                 .order_by(RankRow.created_at.desc(), RankRow.rank_id)
+            ).all()
+            return [Rank.model_validate(r) for r in rows]
+
+    def failed_ranks_since(self, job_id: str, since: datetime) -> list[Rank]:
+        """Rank failures for a job since a timestamp, newest first."""
+        with self._client.session() as s:
+            rows = s.scalars(
+                select(RankRow)
+                .where(
+                    RankRow.job_id == job_id,
+                    RankRow.status == RankStatus.FAILED,
+                    RankRow.updated_at >= since,
+                )
+                .order_by(RankRow.updated_at.desc(), RankRow.rank_id)
             ).all()
             return [Rank.model_validate(r) for r in rows]
 
