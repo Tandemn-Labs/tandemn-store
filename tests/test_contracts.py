@@ -219,6 +219,7 @@ def test_credentials_require_expiry_and_secret():
 def test_event_registry_matches_doc_catalog():
     """DATA_ARCHITECTURE.md §9 and the registry must change in lockstep."""
     assert set(events.PAYLOAD_REGISTRY) == {
+        "job.place",
         "job.submitted",
         "job.placed",
         "job.paused",
@@ -228,6 +229,7 @@ def test_event_registry_matches_doc_catalog():
         "tick.completed",
         "plan.created",
         "plan.applied",
+        "rank.launching",
         "rank.launched",
         "rank.running",
         "rank.stopped",
@@ -237,6 +239,18 @@ def test_event_registry_matches_doc_catalog():
 
 
 def test_payload_validation_enforces_shape():
+    placing = events.validate_payload(
+        "job.place",
+        {
+            "job_id": "job_1",
+            "user_id": "usr_1",
+            "plan_id": "plan_1",
+            "action_type": "place",
+        },
+    )
+    assert placing.plan_id == "plan_1"  # type: ignore[attr-defined]
+    assert placing.user_id == "usr_1"  # type: ignore[attr-defined]
+
     ok = events.validate_payload(
         "job.finished", {"job_id": "job_1", "user_id": "usr_1", "finish_reason": "FAILED"}
     )
