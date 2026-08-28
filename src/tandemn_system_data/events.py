@@ -20,6 +20,7 @@ from tandemn_system_data.models._base import CanonicalModel
 from tandemn_system_data.models.enums import ActionType, RankRole
 
 EventType = Literal[
+    "job.place",
     "job.submitted",
     "job.placed",
     "job.paused",
@@ -29,6 +30,7 @@ EventType = Literal[
     "tick.completed",
     "plan.created",
     "plan.applied",
+    "rank.launching",
     "rank.launched",
     "rank.running",
     "rank.stopped",
@@ -36,6 +38,7 @@ EventType = Literal[
 ]
 
 ALL_EVENT_TYPES: tuple[str, ...] = (
+    "job.place",
     "job.submitted",
     "job.placed",
     "job.paused",
@@ -45,6 +48,7 @@ ALL_EVENT_TYPES: tuple[str, ...] = (
     "tick.completed",
     "plan.created",
     "plan.applied",
+    "rank.launching",
     "rank.launched",
     "rank.running",
     "rank.stopped",
@@ -59,6 +63,15 @@ class _PayloadBase(CanonicalModel):
 class JobSubmittedPayload(_PayloadBase):
     job_id: str
     user_id: str
+
+
+class JobPlacePayload(_PayloadBase):
+    """Orca began processing a plan's place action."""
+
+    job_id: str
+    user_id: str
+    plan_id: str
+    action_type: Literal["place"]
 
 
 class JobPlacedPayload(_PayloadBase):
@@ -120,6 +133,17 @@ class PlanAppliedPayload(_PayloadBase):
     user_id: str
 
 
+class RankLaunchingPayload(_PayloadBase):
+    """Orca persisted desired rank state and began infrastructure launch."""
+
+    rank_id: str
+    job_id: str
+    plan_id: str | None = None
+    role: RankRole
+    shape_json: dict[str, Any] = Field(default_factory=dict)
+    n_replicas: int
+
+
 class RankLaunchedPayload(_PayloadBase):
     rank_id: str
     job_id: str
@@ -150,6 +174,7 @@ class RankFailedPayload(_PayloadBase):
 
 
 PAYLOAD_REGISTRY: dict[str, type[_PayloadBase]] = {
+    "job.place": JobPlacePayload,
     "job.submitted": JobSubmittedPayload,
     "job.placed": JobPlacedPayload,
     "job.paused": JobPausedPayload,
@@ -159,6 +184,7 @@ PAYLOAD_REGISTRY: dict[str, type[_PayloadBase]] = {
     "tick.completed": TickCompletedPayload,
     "plan.created": PlanCreatedPayload,
     "plan.applied": PlanAppliedPayload,
+    "rank.launching": RankLaunchingPayload,
     "rank.launched": RankLaunchedPayload,
     "rank.running": RankRunningPayload,
     "rank.stopped": RankStoppedPayload,
@@ -186,6 +212,7 @@ __all__ = [
     "EventType",
     "JobFinishedPayload",
     "JobPausedPayload",
+    "JobPlacePayload",
     "JobPlacedPayload",
     "JobResumedPayload",
     "JobSubmittedPayload",
@@ -193,6 +220,7 @@ __all__ = [
     "PlanCreatedPayload",
     "RankFailedPayload",
     "RankLaunchedPayload",
+    "RankLaunchingPayload",
     "RankRunningPayload",
     "RankStoppedPayload",
     "TickCompletedPayload",

@@ -11,7 +11,9 @@ from __future__ import annotations
 from sqlalchemy import select, update
 
 from tandemn_system_data.clients.postgres import PostgresClient
-from tandemn_system_data.db.orm import PlanRow
+from tandemn_system_data.db.orm import EventRow, PlanRow
+from tandemn_system_data.events import PlanCreatedPayload
+from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.plan import Plan, PlanAction
 
 STATUS_CREATED = "created"
@@ -47,8 +49,29 @@ class PlanStore:
         self._client = client
 
     def create(self, plan: Plan) -> Plan:
+        event = Event(
+            user_id=plan.user_id,
+            type="plan.created",
+            payload_json=PlanCreatedPayload(
+                plan_id=plan.plan_id,
+                user_id=plan.user_id,
+                actions={action.job_id: action.type for action in plan.actions},
+            ).model_dump(mode="json"),
+            created_at=plan.created_at,
+        )
         with self._client.begin() as s:
             s.add(_to_row(plan))
+            s.add(
+                EventRow(
+                    event_id=event.event_id,
+                    user_id=event.user_id,
+                    job_id=event.job_id,
+                    rank_id=event.rank_id,
+                    type=event.type,
+                    payload_json=event.payload_json,
+                    created_at=event.created_at,
+                )
+            )
         return plan
 
     def get(self, plan_id: str) -> Plan | None:

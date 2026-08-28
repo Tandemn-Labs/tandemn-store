@@ -24,9 +24,11 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from tandemn_system_data.clients.postgres import PostgresClient
-from tandemn_system_data.db.orm import JobRow, RankRow
+from tandemn_system_data.db.orm import EventRow, JobRow, RankRow
+from tandemn_system_data.events import JobSubmittedPayload
 from tandemn_system_data.models._base import utc_now
 from tandemn_system_data.models.enums import JobStatus, RankRole, RankStatus
+from tandemn_system_data.models.event import Event
 from tandemn_system_data.models.job import Job, RankAllocation, RunningJob
 from tandemn_system_data.models.rank import Rank
 
@@ -45,8 +47,29 @@ class JobStore:
     # ----- writes (Orca) ---------------------------------------------------
 
     def submit(self, job: Job) -> Job:
+        event = Event(
+            user_id=job.user_id,
+            job_id=job.job_id,
+            type="job.submitted",
+            payload_json=JobSubmittedPayload(
+                job_id=job.job_id,
+                user_id=job.user_id,
+            ).model_dump(mode="json"),
+            created_at=job.created_at,
+        )
         with self._client.begin() as s:
             s.add(JobRow(**job.model_dump()))
+            s.add(
+                EventRow(
+                    event_id=event.event_id,
+                    user_id=event.user_id,
+                    job_id=event.job_id,
+                    rank_id=event.rank_id,
+                    type=event.type,
+                    payload_json=event.payload_json,
+                    created_at=event.created_at,
+                )
+            )
         return job
 
     def transition(

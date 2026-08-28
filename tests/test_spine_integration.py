@@ -7,7 +7,7 @@ import subprocess
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from tandemn_system_data.clients import (
@@ -213,6 +213,23 @@ def test_job_lifecycle_with_cas(store: JobStore, user_id: str):
     assert store.get("job_nope") is None
 
 
+def test_submit_emits_job_submitted_event(store: JobStore, pg_client: PostgresClient, user_id: str):
+    job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+
+    with pg_client.session() as s:
+        event = s.scalar(
+            select(EventRow).where(
+                EventRow.type == "job.submitted",
+                EventRow.job_id == job.job_id,
+            )
+        )
+
+    assert event is not None
+    assert event.user_id == user_id
+    assert event.payload_json == {"job_id": job.job_id, "user_id": user_id}
+    assert event.created_at == job.created_at
+
+
 def test_job_failure_detail_and_retryable_error(store: JobStore, user_id: str):
     failed = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
     assert store.fail(
@@ -344,6 +361,35 @@ def test_plan_handoff_and_rank_launch(store: JobStore, pg_client: PostgresClient
     assert len(mine.ranks) == 2
     assert sum(rank.n_replicas for rank in mine.ranks) == 3
     assert {rank.role for rank in mine.ranks} == {RankRole.PREFILL, RankRole.DECODE}
+
+
+def test_create_emits_plan_created_event(store: JobStore, pg_client: PostgresClient, user_id: str):
+    job = store.submit(Job(user_id=user_id, kind=JobKind.ONLINE))
+    plan = PlanStore(pg_client).create(
+        Plan(
+            user_id=user_id,
+            actions=[PlanAction(job_id=job.job_id, type=ActionType.PLACE)],
+        )
+    )
+
+    with pg_client.session() as s:
+        event = s.scalar(
+            select(EventRow).where(
+                EventRow.type == "plan.created",
+                EventRow.job_id.is_(None),
+                EventRow.payload_json["plan_id"].astext == plan.plan_id,
+            )
+        )
+
+    assert event is not None
+    assert event.user_id == user_id
+    assert event.payload_json == {
+        "plan_id": plan.plan_id,
+        "user_id": user_id,
+        "tick_id": None,
+        "actions": {job.job_id: ActionType.PLACE},
+    }
+    assert event.created_at == plan.created_at
 
 
 def test_rank_requires_positive_replica_count(
