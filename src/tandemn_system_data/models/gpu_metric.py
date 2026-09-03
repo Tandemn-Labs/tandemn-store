@@ -2,11 +2,11 @@
 
 One row per (job, GPU) per collector tick, persisted via
 ``GpuMetricStore`` (Postgres ``gpu_metrics`` table). The collector lives in
-``tandemn-system`` (Orca): it polls Prometheus, computes the 28 tracked
+``tandemn-system`` (Orca): it polls Prometheus, computes the 32 tracked
 metrics, and writes rows here. Append-only timeseries; not an Orca handoff
 type.
 
-The 28 metric fields are all optional: several are topology- or config-gated
+The 32 metric fields are all optional: several are topology- or config-gated
 (NVLink/comm/expert metrics need multi-GPU/TP>1/PP>1/MoE; ``sm_utilization``
 needs extra DCGM counters) and are ``None`` when the current deployment does
 not produce them. ``to_metrics`` / ``from_row`` move the metric fields in and
@@ -79,6 +79,12 @@ class GpuMetric(CanonicalModel):
     output_length_observed: float | None = None
     prefill_iteration_counts_per_second: float | None = None
     decode_itr_counts_per_second: float | None = None
+
+    # --- batch driver ---
+    batched_reqs_inflight: float | None = None
+    batched_reqs_processed_total: float | None = None
+    batched_chunks_input_pulled_total: float | None = None
+    batched_chunks_output_written_total: float | None = None
 
     # --- derived / composite ---
     slo_margin: float | None = None

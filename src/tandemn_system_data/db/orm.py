@@ -266,7 +266,7 @@ class GpuMetricRow(Base):
     node_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     instance_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # The 28 tracked metric values; nullable inside JSON when a metric is
+    # The 32 tracked metric values; nullable inside JSON when a metric is
     # topology/config-gated and not produced by the current deployment.
     metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
