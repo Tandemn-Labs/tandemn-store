@@ -2,7 +2,7 @@
 
 The Orca collector writes one row per (job, GPU) per tick; consumers
 read recent windows for a job. Indexed columns (``job_id``, ``rank_id``,
-``gpu_uuid``, ``ts``) back the windowed reads; the 28 metric values live in
+``gpu_uuid``, ``ts``) back the windowed reads; the 32 metric values live in
 ``metrics_json``.
 """
 
