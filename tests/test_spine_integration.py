@@ -4,7 +4,7 @@ JobStore, event log. Requires Postgres (`make up`)."""
 from __future__ import annotations
 
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import inspect, select
@@ -543,6 +543,60 @@ def test_event_log_cursor_and_consumer_ack(pg_client: PostgresClient):
     assert [e.event_id for e in log.read_for_consumer(consumer)] == [second.event_id]
     log.ack(consumer, second.event_id)
     assert log.read_for_consumer(consumer) == []
+
+
+def test_event_log_trace_consumer_starts_at_user_tail_and_scopes_reads(
+    pg_client: PostgresClient,
+):
+    log = PostgresEventLog(pg_client)
+    user_id = "usr_trace"
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    old = Event(
+        type="job.submitted",
+        user_id=user_id,
+        created_at=started_at,
+    )
+    tail = Event(
+        type="job.finished",
+        user_id=user_id,
+        created_at=started_at + timedelta(seconds=1),
+    )
+    log.append(old)
+    log.append(tail)
+
+    consumer = f"real-trace-{tail.event_id}"
+    log.initialize_consumer_at_user_tail(consumer, user_id)
+    assert log.get_cursor(consumer) == tail.event_id
+
+    wanted = Event(
+        type="plan.created",
+        user_id=user_id,
+        created_at=started_at + timedelta(seconds=2),
+    )
+    log.append(wanted)
+    log.append(
+        Event(
+            type="plan.created",
+            user_id="usr_other",
+            created_at=started_at + timedelta(seconds=3),
+        )
+    )
+    log.append(
+        Event(
+            type="job.finished",
+            user_id=user_id,
+            created_at=started_at + timedelta(seconds=4),
+        )
+    )
+
+    assert [
+        event.event_id
+        for event in log.read_for_consumer(
+            consumer,
+            user_id=user_id,
+            types={"plan.created"},
+        )
+    ] == [wanted.event_id]
 
 
 # ----- GPU metric store (telemetry) --------------------------------------------
