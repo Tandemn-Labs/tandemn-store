@@ -50,6 +50,7 @@ class PostgresEventLog:
         *,
         limit: int = 100,
         types: set[str] | None = None,
+        user_id: str | None = None,
     ) -> list[Event]:
         """Read events after a cursor, ordered by (created_at, event_id).
 
@@ -73,6 +74,8 @@ class PostgresEventLog:
                     stmt = stmt.where(EventRow.event_id > last_event_id)
             if types:
                 stmt = stmt.where(EventRow.type.in_(types))
+            if user_id is not None:
+                stmt = stmt.where(EventRow.user_id == user_id)
             rows = list(s.execute(stmt).scalars())
             return [self._row_to_event(r) for r in rows]
 
@@ -87,8 +90,35 @@ class PostgresEventLog:
         *,
         limit: int = 100,
         types: set[str] | None = None,
+        user_id: str | None = None,
     ) -> list[Event]:
-        return self.read_after(self.get_cursor(consumer_name), limit=limit, types=types)
+        return self.read_after(
+            self.get_cursor(consumer_name),
+            limit=limit,
+            types=types,
+            user_id=user_id,
+        )
+
+    def initialize_consumer_at_user_tail(self, consumer_name: str, user_id: str) -> None:
+        """Start a new consumer after the user's existing event history."""
+        now = datetime.now(UTC)
+        with self._pg.begin() as s:
+            if s.get(EventConsumerOffsetRow, consumer_name) is not None:
+                return
+            latest_event_id = s.scalar(
+                select(EventRow.event_id)
+                .where(EventRow.user_id == user_id)
+                .order_by(EventRow.created_at.desc(), EventRow.event_id.desc())
+                .limit(1)
+            )
+            # ponytail: trace run IDs are unique, so concurrent initialization is unsupported.
+            s.add(
+                EventConsumerOffsetRow(
+                    consumer_name=consumer_name,
+                    last_event_id=latest_event_id,
+                    updated_at=now,
+                )
+            )
 
     def ack(self, consumer_name: str, event_id: str) -> None:
         """Advance a consumer cursor after successful processing."""
